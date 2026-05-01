@@ -34,6 +34,10 @@
     <keyword>network</keyword>
     <keyword>proxy</keyword>
   </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#3584e4</color>
+    <color type="primary" scheme_preference="dark">#1c71d8</color>
+  </branding>
   <launchable type="desktop-id">io.github.sugarycandybar.Carabiner.desktop</launchable>
   <url type="homepage">https://github.com/sugarycandybar/Carabiner</url>
   <url type="bugtracker">https://github.com/sugarycandybar/Carabiner/issues</url>
