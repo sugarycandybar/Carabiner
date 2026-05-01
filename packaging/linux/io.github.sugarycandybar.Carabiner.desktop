@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Carabiner
+Comment=Create and manage secure network tunnels
+Exec=carabiner
+Icon=io.github.sugarycandybar.Carabiner
+Terminal=false
+Categories=Utility;Network;
+Keywords=tunnel;ngrok;playit;secure;network;proxy;
+StartupNotify=true

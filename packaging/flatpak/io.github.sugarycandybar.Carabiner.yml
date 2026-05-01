@@ -1,0 +1,26 @@
+app-id: io.github.sugarycandybar.Carabiner
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+command: carabiner
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+modules:
+  - python3-requirements.json
+  - name: carabiner
+    buildsystem: simple
+    build-commands:
+      - install -d /app/share
+      - cp -a carabiner /app/share/
+      - install -Dm755 carabiner.py /app/share/carabiner.py
+      - install -Dm755 packaging/flatpak/carabiner-wrapper.sh /app/bin/carabiner
+      - install -Dm644 packaging/linux/io.github.sugarycandybar.Carabiner.desktop /app/share/applications/io.github.sugarycandybar.Carabiner.desktop
+      - install -Dm644 packaging/linux/io.github.sugarycandybar.Carabiner.metainfo.xml /app/share/metainfo/io.github.sugarycandybar.Carabiner.metainfo.xml
+    sources:
+      - type: git
+        url: https://github.com/sugarycandybar/Carabiner.git
+        commit: 8b9784ef0de8e4215017821d82b20502469c4247
