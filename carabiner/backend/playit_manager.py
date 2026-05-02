@@ -901,6 +901,53 @@ class PlayitManager(EventEmitter):
 
         return True, "playit started"
 
+    def start_agent(self) -> tuple[bool, str]:
+        """Start the playit agent subprocess without targeting a specific tunnel.
+
+        Initializes the API session and starts the agent process so that all
+        tunnels configured on this account become active.
+        """
+        if self.is_running:
+            return True, "playit agent is already running"
+
+        binary = self.resolve_binary()
+        if not binary:
+            return False, "playit binary not found"
+
+        self._set_status("starting")
+
+        existing_secret = self.read_claimed_secret()
+        if not existing_secret:
+            self._set_status("stopped")
+            return False, "playit is not linked yet"
+
+        if not self.initialized and not self._initialize_with_retry(max_attempts=25, delay_seconds=1.0):
+            detail = self._last_error or "unknown error"
+            if self._is_invalid_agent_key_error(detail):
+                self.unlink_account()
+                self._set_status("stopped")
+                return False, "linked playit key is invalid; run setup again"
+            self._set_status("stopped")
+            return False, f"failed to initialize playit API session: {detail}"
+
+        # Refresh tunnel list so endpoints are available
+        self._retrieve_tunnels()
+
+        if not self._start_agent_service(binary):
+            self._set_status("stopped")
+            return False, "failed to start playit agent"
+
+        self._claim_url = ""
+        self._set_status("running")
+
+        self._read_thread = threading.Thread(target=self._read_output, daemon=True)
+        self._read_thread.start()
+
+        self._watch_thread = threading.Thread(target=self._watch_exit, daemon=True)
+        self._watch_thread.start()
+
+        return True, "playit agent started"
+
     def regenerate_domain(
         self,
         server_id: str,

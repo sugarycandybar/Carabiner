@@ -134,15 +134,34 @@ class NgrokManager(EventEmitter):
             return False, e.stderr.decode() or "Failed to set auth token"
 
     def has_auth_token(self) -> bool:
-        config_path = Path.home() / ".config" / "ngrok" / "ngrok.yml"
-        if not config_path.exists():
-            return False
-        try:
-            with open(config_path, "r") as f:
-                content = f.read()
-                return "authtoken:" in content
-        except:
-            return False
+        paths = []
+        
+        # Check XDG_CONFIG_HOME (Standard for Linux and Flatpak)
+        xdg_config = os.environ.get("XDG_CONFIG_HOME")
+        if xdg_config:
+            paths.append(Path(xdg_config) / "ngrok" / "ngrok.yml")
+        
+        # Default Linux/macOS paths
+        paths.append(Path.home() / ".config" / "ngrok" / "ngrok.yml")
+        paths.append(Path.home() / ".ngrok2" / "ngrok.yml")
+        
+        # Windows path
+        if sys.platform == "win32":
+            local_appdata = os.environ.get("LOCALAPPDATA")
+            if local_appdata:
+                paths.append(Path(local_appdata) / "ngrok" / "ngrok.yml")
+            paths.append(Path.home() / "AppData" / "Local" / "ngrok" / "ngrok.yml")
+
+        for config_path in paths:
+            if config_path.exists() and config_path.is_file():
+                try:
+                    with open(config_path, "r") as f:
+                        content = f.read()
+                        if "authtoken:" in content:
+                            return True
+                except:
+                    continue
+        return False
 
     def start(self, port: int, protocol: str = "tcp") -> bool:
         if self.is_running:

@@ -11,10 +11,19 @@ from carabiner.backend.ngrok_manager import NgrokManager
 from carabiner.backend.tunnel_store import load_tunnels, add_tunnel, remove_tunnel, MANAGER_REGISTRY, stop_all_tunnels
 from carabiner.backend.constants import APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE
 
+_shared_playit_manager = None
+
+def get_shared_playit_manager():
+    """Get or create the single shared PlayitManager instance."""
+    global _shared_playit_manager
+    if _shared_playit_manager is None:
+        _shared_playit_manager = PlayitManager()
+    return _shared_playit_manager
+
 def get_provider_manager(provider):
-    """Get a temporary manager instance for installation checks."""
+    """Get a manager instance for installation checks."""
     if provider == "Playit":
-        return PlayitManager()
+        return get_shared_playit_manager()
     elif provider == "Cloudflare":
         return CloudflareManager()
     else:
@@ -22,6 +31,9 @@ def get_provider_manager(provider):
 
 def get_manager_for_tunnel(t_config):
     """Get or create a persistent manager instance for a specific tunnel."""
+    if t_config["provider"] == "Playit":
+        return get_shared_playit_manager()
+
     t_id = t_config["id"]
     if t_id in MANAGER_REGISTRY:
         return MANAGER_REGISTRY[t_id]
@@ -29,6 +41,78 @@ def get_manager_for_tunnel(t_config):
     mgr = get_provider_manager(t_config["provider"])
     MANAGER_REGISTRY[t_id] = mgr
     return mgr
+
+class PlayitAgentRow(Adw.ActionRow):
+    """Group-level row with a single switch to start/stop the Playit agent."""
+
+    def __init__(self):
+        super().__init__()
+        self.manager = get_shared_playit_manager()
+        self.set_title("Playit Agent")
+        self.set_subtitle("Stopped")
+
+        self.switch = Gtk.Switch()
+        self.switch.set_valign(Gtk.Align.CENTER)
+        self.switch.connect("state-set", self._on_switch_toggled)
+        self.add_suffix(self.switch)
+
+        self._status_handler = self.manager.connect("status-changed", self._on_status_changed)
+        self._update_status(self.manager.status)
+
+    def _on_status_changed(self, manager, status):
+        GLib.idle_add(self._update_status, status)
+
+    def _update_status(self, status):
+        is_busy = status in ["starting", "creating", "stopping"]
+        self.switch.set_sensitive(not is_busy)
+
+        if status == "running":
+            self.set_subtitle("Running")
+            self.switch.set_active(True)
+            self.switch.set_state(True)
+        elif status == "stopped":
+            self.set_subtitle("Stopped")
+            self.switch.set_active(False)
+            self.switch.set_state(False)
+        elif status.startswith("error:"):
+            msg = status.split("error:", 1)[1].strip()
+            self.set_subtitle("Error")
+            self.switch.set_active(False)
+            self.switch.set_state(False)
+            self._show_error("Agent Error", msg)
+        elif status == "starting":
+            self.set_subtitle("Starting…")
+        else:
+            self.set_subtitle(status.capitalize() + "…")
+
+    def _on_switch_toggled(self, switch, state):
+        if state:
+            if not self.manager.is_running:
+                self._start_agent()
+        else:
+            if self.manager.is_running:
+                self.manager.stop()
+        return True
+
+    def _start_agent(self):
+        def start_thread():
+            ok, msg = self.manager.start_agent()
+            if not ok:
+                GLib.idle_add(self._show_error, "Agent Error", msg)
+                GLib.idle_add(self._update_status, "stopped")
+
+        threading.Thread(target=start_thread, daemon=True).start()
+
+    def _show_error(self, title, msg):
+        win = self.get_root()
+        dialog = Adw.MessageDialog(heading=title, body=msg)
+        dialog.set_body_use_markup(True)
+        dialog.add_response("ok", "Close")
+        dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", lambda d, r: d.close())
+        dialog.set_transient_for(win)
+        dialog.present()
+
 
 class TunnelRow(Adw.ExpanderRow):
     def __init__(self, tunnel_config, on_delete):
@@ -62,11 +146,13 @@ class TunnelRow(Adw.ExpanderRow):
         self.main_copy_btn.connect("clicked", self._on_copy_clicked)
         self.suffix_box.append(self.main_copy_btn)
 
-        # Switch
-        self.switch = Gtk.Switch()
-        self.switch.set_valign(Gtk.Align.CENTER)
-        self.switch.connect("state-set", self._on_switch_toggled)
-        self.suffix_box.append(self.switch)
+        # Switch (only for non-Playit providers — Playit is agent-level)
+        self.switch = None
+        if provider != "Playit":
+            self.switch = Gtk.Switch()
+            self.switch.set_valign(Gtk.Align.CENTER)
+            self.switch.connect("state-set", self._on_switch_toggled)
+            self.suffix_box.append(self.switch)
 
         # Inner rows
         
@@ -123,30 +209,57 @@ class TunnelRow(Adw.ExpanderRow):
 
     def _update_status_ui(self, status):
         is_busy = status in ["starting", "creating", "stopping"]
-        self.switch.set_sensitive(not is_busy)
+        if self.switch:
+            self.switch.set_sensitive(not is_busy)
+
+        # Retrieve specific tunnel URL for Playit
+        if self.config["provider"] == "Playit":
+            try:
+                for t in self.manager.tunnels.get(self.config["protocol"].lower(), []):
+                    if t.port == int(self.config["port"]) and t.hostname:
+                        self.public_url = t.hostname
+                        from carabiner.backend.tunnel_store import update_tunnel_url
+                        update_tunnel_url(self.config["id"], t.hostname)
+                        break
+            except Exception:
+                pass
+
+        display_text = ""
+        if self.config["provider"] == "Playit" and self.public_url:
+            display_text = self.public_url
+
+        if not display_text:
+            if status == "running":
+                display_text = "Running"
+            elif status == "stopped":
+                display_text = "Stopped"
+            elif status.startswith("error:"):
+                display_text = "Error"
+            elif status == "starting":
+                display_text = "Starting..."
+            elif status == "creating":
+                display_text = "Creating tunnel..."
+            else:
+                display_text = status.capitalize() + "..."
+
+        self.set_subtitle(display_text)
 
         if status == "running":
-            self.set_subtitle("Running")
-            self.switch.set_active(True)
-            self.switch.set_state(True)
+            if self.switch:
+                self.switch.set_active(True)
+                self.switch.set_state(True)
         elif status == "stopped":
-            self.set_subtitle("Stopped")
-            self.switch.set_active(False)
-            self.switch.set_state(False)
+            if self.switch:
+                self.switch.set_active(False)
+                self.switch.set_state(False)
         elif status.startswith("error:"):
             msg = status.split("error:", 1)[1].strip()
             if "ERR_NGROK_8013" in msg:
                 msg = "Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will NOT be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>"
-            self.set_subtitle("Error")
-            self.switch.set_active(False)
-            self.switch.set_state(False)
+            if self.switch:
+                self.switch.set_active(False)
+                self.switch.set_state(False)
             self._show_error("Tunnel Error", msg)
-        elif status == "starting":
-            self.set_subtitle("Starting...")
-        elif status == "creating":
-            self.set_subtitle("Creating tunnel...")
-        else:
-            self.set_subtitle(status.capitalize() + "...")
 
         show_url = bool(self.public_url)
         if self.config["provider"] != "Playit" and status != "running":
@@ -160,15 +273,18 @@ class TunnelRow(Adw.ExpanderRow):
             self.main_copy_btn.set_visible(False)
 
     def _on_endpoint_changed(self, manager, endpoint, claim_url):
+        if self.config["provider"] == "Playit":
+            # Playit manager emits the generic 'best' endpoint. 
+            # Individual TunnelRows pull their specific URL from the API cache in _update_status_ui instead.
+            GLib.idle_add(self._update_status_ui, manager.status)
+            return
+
         if endpoint:
             self.public_url = endpoint
-            if self.config["provider"] == "Playit":
-                from carabiner.backend.tunnel_store import update_tunnel_url
-                update_tunnel_url(self.config["id"], endpoint)
-        elif manager.status != "running" and self.config["provider"] == "Playit":
-            pass
         else:
             self.public_url = ""
+            
+        GLib.idle_add(self._update_status_ui, manager.status)
             
         GLib.idle_add(self._update_status_ui, manager.status)
 
@@ -240,6 +356,13 @@ class TunnelRow(Adw.ExpanderRow):
         provider = self.config["provider"]
         
         def start_thread():
+            if provider == "Ngrok":
+                from carabiner.backend.ngrok_manager import NgrokManager
+                for mgr in MANAGER_REGISTRY.values():
+                    if isinstance(mgr, NgrokManager) and mgr != self.manager:
+                        if mgr.is_running:
+                            mgr.stop()
+
             if isinstance(self.manager, PlayitManager):
                 ok, msg = self.manager.start(port, protocol=protocol, allow_unclaimed=False, auto_install=False)
                 if not ok:
@@ -741,6 +864,12 @@ class CarabinerWindow(Adw.ApplicationWindow):
                 group = Adw.PreferencesGroup()
                 group.set_title(provider)
                 page.add(group)
+
+                # Playit gets a single agent-level start/stop row
+                if provider == "Playit":
+                    agent_row = PlayitAgentRow()
+                    group.add(agent_row)
+
                 for t_config in by_provider[provider]:
                     row = TunnelRow(t_config, on_delete=self._refresh_ui)
                     group.add(row)

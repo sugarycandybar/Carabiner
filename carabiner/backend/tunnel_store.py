@@ -63,14 +63,27 @@ def remove_tunnel(t_id):
         
         import threading
         threading.Thread(target=_delete_bg, daemon=True).start()
-
-    if mgr and mgr.is_running:
-        mgr.stop()
+    else:
+        if mgr and mgr.is_running:
+            mgr.stop()
 
 MANAGER_REGISTRY = {}
 
 def stop_all_tunnels():
+    seen = set()
     for t_id, mgr in list(MANAGER_REGISTRY.items()):
-        if mgr.is_running:
-            mgr.stop()
+        if mgr not in seen:
+            seen.add(mgr)
+            if mgr.is_running:
+                mgr.stop()
     MANAGER_REGISTRY.clear()
+    
+    # Ensure the shared Playit agent is stopped, even if there are no tunnels left in the registry
+    try:
+        from carabiner.window import get_shared_playit_manager
+        p_mgr = get_shared_playit_manager()
+        if p_mgr.is_running:
+            p_mgr.stop()
+    except Exception:
+        pass
+
