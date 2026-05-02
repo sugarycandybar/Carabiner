@@ -4,11 +4,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gio, GLib
 import threading
 import time
+import re
 
 from carabiner.backend.playit_manager import PlayitManager
 from carabiner.backend.cloudflare_manager import CloudflareManager
 from carabiner.backend.ngrok_manager import NgrokManager
-from carabiner.backend.tunnel_store import load_tunnels, add_tunnel, remove_tunnel, MANAGER_REGISTRY, stop_all_tunnels
+from carabiner.backend.tunnel_store import load_tunnels, add_tunnel, remove_tunnel, update_tunnel_label, MANAGER_REGISTRY, stop_all_tunnels
 from carabiner.backend.constants import APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE
 
 _shared_playit_manager = None
@@ -56,11 +57,17 @@ class PlayitAgentRow(Adw.ActionRow):
         self.switch.connect("state-set", self._on_switch_toggled)
         self.add_suffix(self.switch)
 
+        self.connect("destroy", self._on_destroy)
         self._status_handler = self.manager.connect("status-changed", self._on_status_changed)
         self._update_status(self.manager.status)
 
     def _on_status_changed(self, manager, status):
         GLib.idle_add(self._update_status, status)
+
+    def _on_destroy(self, widget):
+        if hasattr(self, "_status_handler") and self._status_handler:
+            self.manager.disconnect(self._status_handler)
+            self._status_handler = 0
 
     def _update_status(self, status):
         is_busy = status in ["starting", "creating", "stopping"]
@@ -104,12 +111,24 @@ class PlayitAgentRow(Adw.ActionRow):
         threading.Thread(target=start_thread, daemon=True).start()
 
     def _show_error(self, title, msg):
+        if hasattr(self, "_error_dialog") and self._error_dialog:
+            return
+
         win = self.get_root()
+        if not win:
+            return
+
         dialog = Adw.MessageDialog(heading=title, body=msg)
+        self._error_dialog = dialog
         dialog.set_body_use_markup(True)
         dialog.add_response("ok", "Close")
         dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", lambda d, r: d.close())
+        
+        def _on_response(d, r):
+            self._error_dialog = None
+            d.destroy()
+            
+        dialog.connect("response", _on_response)
         dialog.set_transient_for(win)
         dialog.present()
 
@@ -129,8 +148,9 @@ class TunnelRow(Adw.ExpanderRow):
         self.set_subtitle("Stopped")
 
         self.manager = get_manager_for_tunnel(self.config)
-        self.manager.connect("status-changed", self._on_status_changed)
-        self.manager.connect("endpoint-changed", self._on_endpoint_changed)
+        self._status_hid = self.manager.connect("status-changed", self._on_status_changed)
+        self._endpoint_hid = self.manager.connect("endpoint-changed", self._on_endpoint_changed)
+        self.connect("destroy", self._on_destroy)
 
         # Suffix container
         self.suffix_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -164,12 +184,27 @@ class TunnelRow(Adw.ExpanderRow):
         
         self.add_row(self.url_row)
 
-        if label:
-            # If label is used as title, show port/protocol here
-            self.port_row = Adw.ActionRow()
-            self.port_row.set_title("Local Port")
-            self.port_row.set_subtitle(f"Port {port} • {protocol}")
-            self.add_row(self.port_row)
+        # Label Row
+        self.label_row = Adw.EntryRow()
+        self.label_row.set_title("Label")
+        self.label_row.set_text(label)
+        
+        self.label_apply_btn = Gtk.Button()
+        self.label_apply_btn.set_icon_name("emblem-ok-symbolic")
+        self.label_apply_btn.add_css_class("flat")
+        self.label_apply_btn.set_valign(Gtk.Align.CENTER)
+        self.label_apply_btn.set_tooltip_text("Apply Label")
+        self.label_apply_btn.connect("clicked", lambda b: self._on_label_applied(self.label_row))
+        self.label_row.add_suffix(self.label_apply_btn)
+        
+        self.label_row.connect("apply", self._on_label_applied)
+        self.add_row(self.label_row)
+
+        # Local Port Row (Always show this now for clarity)
+        self.port_row = Adw.ActionRow()
+        self.port_row.set_title("Local Port")
+        self.port_row.set_subtitle(f"Port {port} • {protocol}")
+        self.add_row(self.port_row)
 
         self.provider_row = Adw.ActionRow()
         self.provider_row.set_title("Provider")
@@ -206,6 +241,14 @@ class TunnelRow(Adw.ExpanderRow):
 
     def _on_status_changed(self, manager, status):
         GLib.idle_add(self._update_status_ui, status)
+
+    def _on_destroy(self, widget):
+        if hasattr(self, "_status_hid") and self._status_hid:
+            self.manager.disconnect(self._status_hid)
+            self._status_hid = 0
+        if hasattr(self, "_endpoint_hid") and self._endpoint_hid:
+            self.manager.disconnect(self._endpoint_hid)
+            self._endpoint_hid = 0
 
     def _update_status_ui(self, status):
         is_busy = status in ["starting", "creating", "stopping"]
@@ -255,7 +298,7 @@ class TunnelRow(Adw.ExpanderRow):
         elif status.startswith("error:"):
             msg = status.split("error:", 1)[1].strip()
             if "ERR_NGROK_8013" in msg:
-                msg = "Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will NOT be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>"
+                msg = "Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will not be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>"
             if self.switch:
                 self.switch.set_active(False)
                 self.switch.set_state(False)
@@ -285,8 +328,6 @@ class TunnelRow(Adw.ExpanderRow):
             self.public_url = ""
             
         GLib.idle_add(self._update_status_ui, manager.status)
-            
-        GLib.idle_add(self._update_status_ui, manager.status)
 
     def _on_copy_clicked(self, btn):
         if self.public_url:
@@ -294,6 +335,20 @@ class TunnelRow(Adw.ExpanderRow):
             win = self.get_root()
             if hasattr(win, "add_toast"):
                 win.add_toast("Copied to clipboard")
+
+    def _on_label_applied(self, row):
+        new_label = row.get_text().strip()
+        update_tunnel_label(self.config["id"], new_label)
+        self.config["label"] = new_label
+        
+        # Update Title
+        port = self.config["port"]
+        protocol = self.config["protocol"]
+        self.set_title(new_label if new_label else f"Port {port} • {protocol}")
+        
+        win = self.get_root()
+        if win and hasattr(win, "add_toast"):
+            win.add_toast("Label updated")
 
     def _on_refresh_name_clicked(self):
         """Cycle the Playit tunnel to a new hostname."""
@@ -377,12 +432,46 @@ class TunnelRow(Adw.ExpanderRow):
         threading.Thread(target=start_thread, daemon=True).start()
         
     def _show_error(self, title, msg):
+        if hasattr(self, "_error_dialog") and self._error_dialog:
+            return
+
         win = self.get_root()
-        dialog = Adw.MessageDialog(heading=title, body=msg)
-        dialog.set_body_use_markup(True)
+        if not win:
+            return
+
+        dialog = Adw.MessageDialog(heading=title)
+        self._error_dialog = dialog
+
+        if "<a " in msg:
+            # For messages with links, we use a custom label in extra_child to ensure it's clickable
+            
+            # Extract plain text and link info
+            link_match = re.search(r'<a href="([^"]+)">([^<]+)</a>', msg)
+            if link_match:
+                url = link_match.group(1)
+                link_text = link_match.group(2)
+                plain_text = re.sub(r'<a [^>]+>[^<]+</a>', '', msg).strip()
+                
+                dialog.set_body(plain_text)
+                
+                link_btn = Gtk.LinkButton(uri=url, label=link_text)
+                link_btn.set_margin_top(12)
+                dialog.set_extra_child(link_btn)
+            else:
+                dialog.set_body(msg)
+                dialog.set_body_use_markup(True)
+        else:
+            dialog.set_body(msg)
+            dialog.set_body_use_markup(True)
+
         dialog.add_response("ok", "Close")
         dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", lambda d, r: d.close())
+        
+        def _on_response(d, r):
+            self._error_dialog = None
+            d.destroy()
+            
+        dialog.connect("response", _on_response)
         dialog.set_transient_for(win)
         dialog.present()
 

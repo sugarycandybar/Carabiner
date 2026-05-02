@@ -39,6 +39,14 @@ def update_tunnel_url(t_id, url):
             save_tunnels(tunnels)
             break
 
+def update_tunnel_label(t_id, label):
+    tunnels = load_tunnels()
+    for t in tunnels:
+        if t["id"] == t_id:
+            t["label"] = label
+            save_tunnels(tunnels)
+            break
+
 def remove_tunnel(t_id):
     tunnels = load_tunnels()
     t_config = next((t for t in tunnels if t["id"] == t_id), None)
