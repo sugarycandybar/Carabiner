@@ -14,6 +14,5 @@ modules:
   - name: carabiner
     buildsystem: meson
     sources:
-      - type: git
-        url: https://github.com/sugarycandybar/Carabiner.git
-        commit: a4ad053a6b973aebadf089a629860c814d77ecd1
+      - type: dir
+        path: ../../

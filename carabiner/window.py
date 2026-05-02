@@ -9,6 +9,7 @@ from carabiner.backend.playit_manager import PlayitManager
 from carabiner.backend.cloudflare_manager import CloudflareManager
 from carabiner.backend.ngrok_manager import NgrokManager
 from carabiner.backend.tunnel_store import load_tunnels, add_tunnel, remove_tunnel, MANAGER_REGISTRY, stop_all_tunnels
+from carabiner.backend.constants import APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE
 
 def get_provider_manager(provider):
     """Get a temporary manager instance for installation checks."""
@@ -29,85 +30,147 @@ def get_manager_for_tunnel(t_config):
     MANAGER_REGISTRY[t_id] = mgr
     return mgr
 
-class TunnelRow(Adw.ActionRow):
+class TunnelRow(Adw.ExpanderRow):
     def __init__(self, tunnel_config, on_delete):
         super().__init__()
         self.config = tunnel_config
         self.on_delete = on_delete
-        
+
         provider = self.config["provider"]
         port = self.config["port"]
         protocol = self.config["protocol"]
-        
-        self.set_title(provider)
-        self.set_subtitle(f"Port {port} • {protocol}")
-        
+        label = self.config.get("label", "").strip()
+
+        self.set_title(label if label else f"Port {port} • {protocol}")
+        self.set_subtitle("Stopped")
+
         self.manager = get_manager_for_tunnel(self.config)
-            
         self.manager.connect("status-changed", self._on_status_changed)
         self.manager.connect("endpoint-changed", self._on_endpoint_changed)
-        
-        # Copy button
-        self.copy_btn = Gtk.Button()
-        self.copy_btn.set_icon_name("edit-copy-symbolic")
-        self.copy_btn.set_valign(Gtk.Align.CENTER)
-        self.copy_btn.add_css_class("flat")
-        self.copy_btn.set_visible(False)
-        self.copy_btn.connect("clicked", self._on_copy_clicked)
-        self.add_suffix(self.copy_btn)
+
+        # Suffix container
+        self.suffix_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.suffix_box.set_valign(Gtk.Align.CENTER)
+        self.add_suffix(self.suffix_box)
+
+        # Main row copy button
+        self.main_copy_btn = Gtk.Button()
+        self.main_copy_btn.set_icon_name("edit-copy-symbolic")
+        self.main_copy_btn.set_valign(Gtk.Align.CENTER)
+        self.main_copy_btn.add_css_class("flat")
+        self.main_copy_btn.set_tooltip_text("Copy tunnel link")
+        self.main_copy_btn.connect("clicked", self._on_copy_clicked)
+        self.suffix_box.append(self.main_copy_btn)
 
         # Switch
         self.switch = Gtk.Switch()
         self.switch.set_valign(Gtk.Align.CENTER)
         self.switch.connect("state-set", self._on_switch_toggled)
-        self.add_suffix(self.switch)
+        self.suffix_box.append(self.switch)
+
+        # Inner rows
         
+        # Link row
+        self.url_row = Adw.ActionRow()
+        self.url_row.set_title("Public URL")
+        self.url_row.set_subtitle("Not available")
+        self.url_row.set_subtitle_selectable(True)
+        
+        self.add_row(self.url_row)
+
+        if label:
+            # If label is used as title, show port/protocol here
+            self.port_row = Adw.ActionRow()
+            self.port_row.set_title("Local Port")
+            self.port_row.set_subtitle(f"Port {port} • {protocol}")
+            self.add_row(self.port_row)
+
+        self.provider_row = Adw.ActionRow()
+        self.provider_row.set_title("Provider")
+        self.provider_row.set_subtitle(provider)
+        self.add_row(self.provider_row)
+
+        # Cycle button (Playit)
+        if provider == "Playit":
+            self.cycle_row = Adw.ActionRow()
+            self.cycle_row.set_title("Cycle Hostname")
+            self.cycle_row.set_subtitle("Get a new public link")
+            self.cycle_btn = Gtk.Button()
+            self.cycle_btn.set_icon_name("view-refresh-symbolic")
+            self.cycle_btn.set_valign(Gtk.Align.CENTER)
+            self.cycle_btn.add_css_class("flat")
+            self.cycle_btn.set_tooltip_text("Cycle Hostname")
+            self.cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked())
+            self.cycle_row.add_suffix(self.cycle_btn)
+            self.add_row(self.cycle_row)
+
         # Delete button
+        self.delete_row = Adw.ActionRow()
+        self.delete_row.set_title("Delete Tunnel")
         self.delete_btn = Gtk.Button()
         self.delete_btn.set_icon_name("user-trash-symbolic")
-        self.delete_btn.set_valign(Gtk.Align.CENTER)
-        self.delete_btn.add_css_class("flat")
         self.delete_btn.add_css_class("destructive-action")
-        self.delete_btn.connect("clicked", self._on_delete_clicked)
-        self.add_suffix(self.delete_btn)
-        
-        self.public_url = self.manager.public_endpoint
+        self.delete_btn.set_valign(Gtk.Align.CENTER)
+        self.delete_btn.connect("clicked", lambda b: self._on_delete_clicked())
+        self.delete_row.add_suffix(self.delete_btn)
+        self.add_row(self.delete_row)
+
+        self.public_url = self.manager.public_endpoint or self.config.get("public_url", "")
         self._update_status_ui(self.manager.status)
 
     def _on_status_changed(self, manager, status):
         GLib.idle_add(self._update_status_ui, status)
-        
+
     def _update_status_ui(self, status):
+        is_busy = status in ["starting", "creating", "stopping"]
+        self.switch.set_sensitive(not is_busy)
+
         if status == "running":
-            sub = f"Running: {self.public_url}" if self.public_url else "Running..."
-            self.set_subtitle(sub)
+            self.set_subtitle("Running")
             self.switch.set_active(True)
             self.switch.set_state(True)
-            self.copy_btn.set_visible(bool(self.public_url))
         elif status == "stopped":
-            self.set_subtitle(f"Port {self.config['port']} • {self.config['protocol']}")
+            self.set_subtitle("Stopped")
             self.switch.set_active(False)
             self.switch.set_state(False)
-            self.copy_btn.set_visible(False)
         elif status.startswith("error:"):
             msg = status.split("error:", 1)[1].strip()
-            
             if "ERR_NGROK_8013" in msg:
                 msg = "Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will NOT be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>"
-                
-            self.set_subtitle(f"Port {self.config['port']} • {self.config['protocol']}")
+            self.set_subtitle("Error")
             self.switch.set_active(False)
             self.switch.set_state(False)
-            self.copy_btn.set_visible(False)
             self._show_error("Tunnel Error", msg)
+        elif status == "starting":
+            self.set_subtitle("Starting...")
+        elif status == "creating":
+            self.set_subtitle("Creating tunnel...")
         else:
             self.set_subtitle(status.capitalize() + "...")
-            self.copy_btn.set_visible(False)
-            
+
+        show_url = bool(self.public_url)
+        if self.config["provider"] != "Playit" and status != "running":
+            show_url = False
+
+        if show_url:
+            self.url_row.set_subtitle(self.public_url)
+            self.main_copy_btn.set_visible(True)
+        else:
+            self.url_row.set_subtitle("Not available")
+            self.main_copy_btn.set_visible(False)
+
     def _on_endpoint_changed(self, manager, endpoint, claim_url):
-        self.public_url = endpoint
-        if manager.status == "running":
-            GLib.idle_add(self._update_status_ui, manager.status)
+        if endpoint:
+            self.public_url = endpoint
+            if self.config["provider"] == "Playit":
+                from carabiner.backend.tunnel_store import update_tunnel_url
+                update_tunnel_url(self.config["id"], endpoint)
+        elif manager.status != "running" and self.config["provider"] == "Playit":
+            pass
+        else:
+            self.public_url = ""
+            
+        GLib.idle_add(self._update_status_ui, manager.status)
 
     def _on_copy_clicked(self, btn):
         if self.public_url:
@@ -116,10 +179,51 @@ class TunnelRow(Adw.ActionRow):
             if hasattr(win, "add_toast"):
                 win.add_toast("Copied to clipboard")
 
-    def _on_delete_clicked(self, btn):
-        remove_tunnel(self.config["id"])
-        if self.on_delete:
-            self.on_delete("Tunnel deleted")
+    def _on_refresh_name_clicked(self):
+        """Cycle the Playit tunnel to a new hostname."""
+        was_running = self.manager.is_running
+        port = int(self.config["port"])
+        protocol = self.config["protocol"].lower()
+
+        def cycle_thread():
+            if was_running:
+                self.manager.stop()
+            if not self.manager.initialized:
+                self.manager.initialize()
+            if self.manager.initialized:
+                self.manager.delete_tunnels(port, protocol)
+            if was_running:
+                ok, msg = self.manager.start(port, protocol=protocol, allow_unclaimed=False, auto_install=False)
+                if not ok:
+                    GLib.idle_add(self._show_error, "Refresh Failed", msg)
+            else:
+                GLib.idle_add(lambda: self.get_root().add_toast("Tunnel hostname cycled") if hasattr(self.get_root(), "add_toast") else None)
+
+        threading.Thread(target=cycle_thread, daemon=True).start()
+
+    def _on_delete_clicked(self):
+        win = self.get_root()
+        label = self.config.get("label", "").strip()
+        name = label if label else f"{self.config['provider']} port {self.config['port']}"
+        dialog = Adw.MessageDialog(
+            heading="Delete Tunnel?",
+            body=f"\u201c{name}\u201d will be permanently removed."
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_transient_for(win)
+
+        def _on_response(d, response):
+            if response == "delete":
+                remove_tunnel(self.config["id"])
+                if self.on_delete:
+                    self.on_delete("Tunnel deleted")
+
+        dialog.connect("response", _on_response)
+        dialog.present()
 
     def _on_switch_toggled(self, switch, state):
         if state:
@@ -348,37 +452,42 @@ class SetupDetailsPage(Adw.NavigationPage):
         self.set_title("Tunnel Details")
         self.provider = provider
         self.on_saved = on_saved
-        
+
         toolbar_view = Adw.ToolbarView()
         self.set_child(toolbar_view)
-        
+
         header = Adw.HeaderBar()
         toolbar_view.add_top_bar(header)
-        
+
         page = Adw.PreferencesPage()
         toolbar_view.set_content(page)
-        
+
         group = Adw.PreferencesGroup()
         group.set_title(f"{provider} Settings")
         page.add(group)
-        
+
+        # Optional label
+        self.label_row = Adw.EntryRow()
+        self.label_row.set_title("Label (optional)")
+        group.add(self.label_row)
+
         self.protocol_row = Adw.ComboRow()
         self.protocol_row.set_title("Protocol")
-        
+
         if provider == "Playit":
             self.protocol_model = Gtk.StringList.new(["TCP", "UDP"])
             self.protocol_row.set_model(self.protocol_model)
         elif provider == "Ngrok":
             self.protocol_model = Gtk.StringList.new(["TCP", "HTTP"])
             self.protocol_row.set_model(self.protocol_model)
-        else: # Cloudflare
+        else:  # Cloudflare
             self.protocol_model = Gtk.StringList.new(["HTTP"])
             self.protocol_row.set_model(self.protocol_model)
             self.protocol_row.set_selected(0)
             self.protocol_row.set_sensitive(False)
-            
+
         group.add(self.protocol_row)
-        
+
         self.port_row = Adw.ActionRow()
         self.port_row.set_title("Local Port")
         self.port_spin = Gtk.SpinButton.new_with_range(1, 65535, 1)
@@ -386,21 +495,22 @@ class SetupDetailsPage(Adw.NavigationPage):
         self.port_spin.set_valign(Gtk.Align.CENTER)
         self.port_row.add_suffix(self.port_spin)
         group.add(self.port_row)
-        
+
         btn_group = Adw.PreferencesGroup()
         page.add(btn_group)
-        
+
         save_btn = Gtk.Button(label="Save Tunnel")
         save_btn.add_css_class("suggested-action")
         save_btn.add_css_class("pill")
         save_btn.set_margin_top(24)
         save_btn.connect("clicked", self._on_save)
         btn_group.add(save_btn)
-        
+
     def _on_save(self, btn):
         port = int(self.port_spin.get_value())
         protocol = self.protocol_model.get_string(self.protocol_row.get_selected())
-        add_tunnel(self.provider, protocol, port)
+        label = self.label_row.get_text().strip()
+        add_tunnel(self.provider, protocol, port, label=label)
         if self.on_saved:
             self.on_saved("Tunnel created")
 
@@ -542,6 +652,20 @@ class CarabinerWindow(Adw.ApplicationWindow):
         self.add_btn.connect("clicked", self._on_add_clicked)
         self.header.pack_start(self.add_btn)
         
+        # Add menu button
+        self.menu_btn = Gtk.MenuButton()
+        self.menu_btn.set_icon_name("open-menu-symbolic")
+        self.header.pack_end(self.menu_btn)
+        
+        menu = Gio.Menu.new()
+        menu.append("About Carabiner", "win.about")
+        self.menu_btn.set_menu_model(menu)
+        
+        # Add actions
+        about_action = Gio.SimpleAction.new("about", None)
+        about_action.connect("activate", self._on_about_activated)
+        self.add_action(about_action)
+        
         self.toolbar_view.add_top_bar(self.header)
         
         self.connect("close-request", self._on_close_request)
@@ -568,38 +692,57 @@ class CarabinerWindow(Adw.ApplicationWindow):
         dialog = SetupDialog(self._refresh_ui)
         dialog.present(self)
         
+    def _on_about_activated(self, action, param):
+        about = Adw.AboutWindow(
+            transient_for=self,
+            application_name=APP_NAME,
+            application_icon=APP_ID,
+            developer_name="sugarycandybar",
+            version=APP_VERSION,
+            website=APP_WEBSITE,
+            issue_url=f"{APP_WEBSITE}/issues",
+            license_type=Gtk.License.GPL_3_0
+        )
+        about.present()
+        
     def _refresh_ui(self, toast_msg=None):
         if toast_msg:
             self.add_toast(toast_msg)
-            
+
         tunnels = load_tunnels()
-        
+
         if not tunnels:
             status_page = Adw.StatusPage()
             status_page.set_title("No Tunnels")
             status_page.set_description("Create a network tunnel to securely share local ports.")
             status_page.set_icon_name("network-server-symbolic")
-            
+
             btn = Gtk.Button(label="Add Tunnel")
             btn.add_css_class("suggested-action")
             btn.add_css_class("pill")
             btn.set_halign(Gtk.Align.CENTER)
             btn.connect("clicked", self._on_add_clicked)
-            
+
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             box.append(status_page)
             box.append(btn)
             box.set_valign(Gtk.Align.CENTER)
-            
+
             self.toolbar_view.set_content(box)
         else:
             page = Adw.PreferencesPage()
-            group = Adw.PreferencesGroup()
-            group.set_title("Configured Tunnels")
-            page.add(group)
-            
-            for t_config in tunnels:
-                row = TunnelRow(t_config, on_delete=self._refresh_ui)
-                group.add(row)
-                
+
+            # Group tunnels by provider (alphabetical)
+            by_provider = {}
+            for t in tunnels:
+                by_provider.setdefault(t["provider"], []).append(t)
+
+            for provider in sorted(by_provider.keys()):
+                group = Adw.PreferencesGroup()
+                group.set_title(provider)
+                page.add(group)
+                for t_config in by_provider[provider]:
+                    row = TunnelRow(t_config, on_delete=self._refresh_ui)
+                    group.add(row)
+
             self.toolbar_view.set_content(page)

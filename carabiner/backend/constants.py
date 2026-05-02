@@ -8,10 +8,15 @@ from pathlib import Path
 # Application identity
 APP_ID = "io.github.sugarycandybar.Carabiner"
 APP_NAME = "Carabiner"
-APP_VERSION = "0.1.0"
+APP_VERSION = "1.0.0"
 APP_WEBSITE = "https://github.com/sugarycandybar/Carabiner"
 
 def _default_data_dir() -> Path:
+    # Use XDG_DATA_HOME if set (standard for Linux/Flatpak)
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    if xdg_data:
+        return Path(xdg_data) / "carabiner"
+
     if sys.platform == "win32":
         local_app_data = os.environ.get("LOCALAPPDATA")
         if local_app_data:

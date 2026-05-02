@@ -18,28 +18,54 @@ def save_tunnels(tunnels):
     with open(TUNNELS_FILE, "w") as f:
         json.dump(tunnels, f, indent=2)
 
-def add_tunnel(provider, protocol, port):
+def add_tunnel(provider, protocol, port, label=""):
     tunnels = load_tunnels()
     t_id = str(uuid.uuid4())
     tunnels.append({
         "id": t_id,
         "provider": provider,
         "protocol": protocol,
-        "port": port
+        "port": port,
+        "label": label,
     })
     save_tunnels(tunnels)
     return t_id
 
+def update_tunnel_url(t_id, url):
+    tunnels = load_tunnels()
+    for t in tunnels:
+        if t["id"] == t_id:
+            t["public_url"] = url
+            save_tunnels(tunnels)
+            break
+
 def remove_tunnel(t_id):
     tunnels = load_tunnels()
+    t_config = next((t for t in tunnels if t["id"] == t_id), None)
+    if not t_config:
+        return
+
     tunnels = [t for t in tunnels if t["id"] != t_id]
     save_tunnels(tunnels)
     
     # Also stop and remove from registry
-    if t_id in MANAGER_REGISTRY:
-        mgr = MANAGER_REGISTRY.pop(t_id)
-        if mgr.is_running:
-            mgr.stop()
+    mgr = MANAGER_REGISTRY.pop(t_id, None)
+    
+    if t_config["provider"] == "Playit":
+        from carabiner.backend.playit_manager import PlayitManager
+        p_mgr = mgr if isinstance(mgr, PlayitManager) else PlayitManager()
+        
+        def _delete_bg():
+            if not p_mgr.initialized:
+                p_mgr.initialize()
+            if p_mgr.initialized:
+                p_mgr.delete_tunnels(t_config["port"], t_config["protocol"].lower())
+        
+        import threading
+        threading.Thread(target=_delete_bg, daemon=True).start()
+
+    if mgr and mgr.is_running:
+        mgr.stop()
 
 MANAGER_REGISTRY = {}
 

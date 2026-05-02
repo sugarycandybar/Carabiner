@@ -737,6 +737,7 @@ class PlayitManager(EventEmitter):
         }
 
         try:
+            self._set_status("creating")
             data = self._request("tunnels/create", json=tunnel_data)
             tunnel_id = str((data.get("data") or {}).get("id", ""))
             if not tunnel_id:
@@ -770,6 +771,16 @@ class PlayitManager(EventEmitter):
             bucket.remove(tunnel)
 
         return tunnel not in self.tunnels.get(tunnel.protocol, [])
+    def delete_tunnels(self, port: int, protocol: str) -> int:
+        """Delete all tunnels for a specific port and protocol on the playit side."""
+        self._retrieve_tunnels()
+        deleted_count = 0
+        bucket = list(self.tunnels.get(protocol, []))
+        for tunnel in bucket:
+            if tunnel.port == int(port):
+                if self._delete_tunnel(tunnel):
+                    deleted_count += 1
+        return deleted_count
 
     def get_tunnel(self, port: int, protocol: str = "tcp", ensure: bool = False, label: str = "") -> Tunnel | None:
         self._retrieve_tunnels()
@@ -835,6 +846,7 @@ class PlayitManager(EventEmitter):
             if not binary:
                 return False, "playit binary not found"
 
+        self._set_status("starting")
         provided_secret = str(secret or "").strip()
         existing_secret = self.read_claimed_secret()
         if provided_secret and not existing_secret:
