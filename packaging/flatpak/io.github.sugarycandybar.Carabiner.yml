@@ -12,17 +12,8 @@ finish-args:
 modules:
   - python3-requirements.json
   - name: carabiner
-    buildsystem: simple
-    build-commands:
-      - install -d /app/share
-      - cp -a carabiner /app/share/
-      - install -Dm755 carabiner.py /app/share/carabiner.py
-      - install -Dm755 packaging/flatpak/carabiner-wrapper.sh /app/bin/carabiner
-      - install -Dm644 packaging/linux/io.github.sugarycandybar.Carabiner.desktop /app/share/applications/io.github.sugarycandybar.Carabiner.desktop
-      - install -Dm644 packaging/linux/io.github.sugarycandybar.Carabiner.metainfo.xml /app/share/metainfo/io.github.sugarycandybar.Carabiner.metainfo.xml
-      - install -Dm644 packaging/linux/io.github.sugarycandybar.Carabiner.svg /app/share/icons/hicolor/scalable/apps/io.github.sugarycandybar.Carabiner.svg
-      - install -Dm644 packaging/linux/io.github.sugarycandybar.Carabiner-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.sugarycandybar.Carabiner-symbolic.svg
+    buildsystem: meson
     sources:
       - type: git
         url: https://github.com/sugarycandybar/Carabiner.git
-        commit: 597c094a1857edf4e122d8a63fdf159f6745ef20
+        commit: a4ad053a6b973aebadf089a629860c814d77ecd1
