@@ -43,6 +43,59 @@ def get_manager_for_tunnel(t_config):
     MANAGER_REGISTRY[t_id] = mgr
     return mgr
 
+import json
+from carabiner.backend.constants import DATA_DIR
+
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
+def load_settings():
+    if not SETTINGS_FILE.exists():
+        return {"playit_token": "", "ngrok_token": ""}
+    try:
+        with open(SETTINGS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"playit_token": "", "ngrok_token": ""}
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+class PreferencesDialog(Adw.Dialog):
+    def __init__(self):
+        super().__init__()
+        self.set_title("Preferences")
+        self.set_content_width(400)
+        
+        self.settings = load_settings()
+        
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup()
+        group.set_title("Tunnel Tokens")
+        page.add(group)
+        
+        self.playit_row = Adw.EntryRow(title="Playit Token")
+        self.playit_row.set_text(self.settings.get("playit_token", ""))
+        self.playit_row.set_show_apply_button(True)
+        self.playit_row.connect("apply", self._on_apply_playit)
+        group.add(self.playit_row)
+        
+        self.ngrok_row = Adw.EntryRow(title="Ngrok Token")
+        self.ngrok_row.set_text(self.settings.get("ngrok_token", ""))
+        self.ngrok_row.set_show_apply_button(True)
+        self.ngrok_row.connect("apply", self._on_apply_ngrok)
+        group.add(self.ngrok_row)
+        
+        self.set_child(page)
+        
+    def _on_apply_playit(self, row):
+        self.settings["playit_token"] = row.get_text()
+        save_settings(self.settings)
+        
+    def _on_apply_ngrok(self, row):
+        self.settings["ngrok_token"] = row.get_text()
+        save_settings(self.settings)
+
 class PlayitAgentRow(Adw.ActionRow):
     """Group-level row with a single switch to start/stop the Playit agent."""
 
@@ -126,7 +179,6 @@ class PlayitAgentRow(Adw.ActionRow):
         
         def _on_response(d, r):
             self._error_dialog = None
-            d.destroy()
             
         dialog.connect("response", _on_response)
         dialog.set_transient_for(win)
@@ -174,56 +226,27 @@ class TunnelRow(Adw.ExpanderRow):
             self.switch.connect("state-set", self._on_switch_toggled)
             self.suffix_box.append(self.switch)
 
-        # Inner rows
-        
-        # Link row
-        self.url_row = Adw.ActionRow()
-        self.url_row.set_title("Public URL")
-        self.url_row.set_subtitle("Not available")
-        self.url_row.set_subtitle_selectable(True)
-        
-        self.add_row(self.url_row)
-
-        # Label Row
-        self.label_row = Adw.EntryRow()
-        self.label_row.set_title("Label")
-        self.label_row.set_text(label)
-        
-        self.label_apply_btn = Gtk.Button()
-        self.label_apply_btn.set_icon_name("emblem-ok-symbolic")
-        self.label_apply_btn.add_css_class("flat")
-        self.label_apply_btn.set_valign(Gtk.Align.CENTER)
-        self.label_apply_btn.set_tooltip_text("Apply Label")
-        self.label_apply_btn.connect("clicked", lambda b: self._on_label_applied(self.label_row))
-        self.label_row.add_suffix(self.label_apply_btn)
-        
-        self.label_row.connect("apply", self._on_label_applied)
-        self.add_row(self.label_row)
-
-        # Local Port Row (Always show this now for clarity)
+        # Local Port Row (removed from main list)
         self.port_row = Adw.ActionRow()
         self.port_row.set_title("Local Port")
         self.port_row.set_subtitle(f"Port {port} • {protocol}")
-        self.add_row(self.port_row)
 
-        self.provider_row = Adw.ActionRow()
-        self.provider_row.set_title("Provider")
-        self.provider_row.set_subtitle(provider)
-        self.add_row(self.provider_row)
+        # Info row
+        self.info_row = Adw.ActionRow()
+        self.info_row.set_title("Tunnel Info")
+        self.info_row.set_activatable(True)
+        self.info_row.connect("activated", self._on_info_clicked)
+        
+        info_btn = Gtk.Button()
+        info_btn.set_icon_name("dialog-information-symbolic")
+        info_btn.set_valign(Gtk.Align.CENTER)
+        info_btn.add_css_class("flat")
+        info_btn.connect("clicked", self._on_info_clicked)
+        
+        self.info_row.add_suffix(info_btn)
+        self.add_row(self.info_row)
 
-        # Cycle button (Playit)
-        if provider == "Playit":
-            self.cycle_row = Adw.ActionRow()
-            self.cycle_row.set_title("Cycle Hostname")
-            self.cycle_row.set_subtitle("Get a new public link")
-            self.cycle_btn = Gtk.Button()
-            self.cycle_btn.set_icon_name("view-refresh-symbolic")
-            self.cycle_btn.set_valign(Gtk.Align.CENTER)
-            self.cycle_btn.add_css_class("flat")
-            self.cycle_btn.set_tooltip_text("Cycle Hostname")
-            self.cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked())
-            self.cycle_row.add_suffix(self.cycle_btn)
-            self.add_row(self.cycle_row)
+        # Inner rows
 
         # Delete button
         self.delete_row = Adw.ActionRow()
@@ -308,12 +331,10 @@ class TunnelRow(Adw.ExpanderRow):
         if self.config["provider"] != "Playit" and status != "running":
             show_url = False
 
-        if show_url:
-            self.url_row.set_subtitle(self.public_url)
-            self.main_copy_btn.set_visible(True)
-        else:
-            self.url_row.set_subtitle("Not available")
-            self.main_copy_btn.set_visible(False)
+        self.main_copy_btn.set_visible(show_url)
+        
+        if hasattr(self, "_info_url_row") and self._info_url_row:
+            self._info_url_row.set_subtitle(self.public_url if self.public_url else "Not available")
 
     def _on_endpoint_changed(self, manager, endpoint, claim_url):
         if self.config["provider"] == "Playit":
@@ -336,39 +357,114 @@ class TunnelRow(Adw.ExpanderRow):
             if hasattr(win, "add_toast"):
                 win.add_toast("Copied to clipboard")
 
-    def _on_label_applied(self, row):
+    def _on_info_clicked(self, row):
+        win = self.get_root()
+        if not win:
+            return
+
+        dialog = Adw.Dialog()
+        dialog.set_content_width(380)
+        dialog.set_content_height(420)
+
+        toolbar = Adw.ToolbarView()
+        dialog.set_child(toolbar)
+
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.WindowTitle(title="Tunnel Info"))
+        toolbar.add_top_bar(header)
+
+        page = Adw.PreferencesPage()
+        toolbar.set_content(page)
+
+        group = Adw.PreferencesGroup()
+        page.add(group)
+
+        # Local Port row
+        local_port_row = Adw.ActionRow()
+        local_port_row.set_title("Local Port")
+        local_port_row.set_subtitle(f"Port {self.config['port']} • {self.config['protocol']}")
+        group.add(local_port_row)
+
+        # Provider row
+        provider_row = Adw.ActionRow()
+        provider_row.set_title("Provider")
+        provider_row.set_subtitle(self.config["provider"])
+        group.add(provider_row)
+
+        # Public URL row
+        self._info_url_row = Adw.ActionRow()
+        self._info_url_row.set_title("Public URL")
+        self._info_url_row.set_subtitle(self.public_url if self.public_url else "Not available")
+        self._info_url_row.set_subtitle_selectable(True)
+        group.add(self._info_url_row)
+
+        # Label row (editable with confirmation)
+        self._info_label_row = Adw.EntryRow()
+        self._info_label_row.set_title("Label")
+        self._info_label_row.set_text(self.config.get("label", ""))
+        self._info_label_row.set_show_apply_button(True)
+        self._info_label_row.connect("apply", self._on_info_label_applied)
+        group.add(self._info_label_row)
+
+        # Cycle button (Playit)
+        if self.config["provider"] == "Playit":
+            cycle_row = Adw.ActionRow()
+            cycle_row.set_title("Cycle Hostname")
+            cycle_row.set_subtitle("Get a new public link")
+            cycle_btn = Gtk.Button()
+            cycle_btn.set_icon_name("view-refresh-symbolic")
+            cycle_btn.set_valign(Gtk.Align.CENTER)
+            cycle_btn.add_css_class("flat")
+            cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked())
+            cycle_row.add_suffix(cycle_btn)
+            group.add(cycle_row)
+
+        dialog.present(win)
+
+    def _on_info_label_applied(self, row):
         new_label = row.get_text().strip()
         update_tunnel_label(self.config["id"], new_label)
         self.config["label"] = new_label
         
-        # Update Title
         port = self.config["port"]
         protocol = self.config["protocol"]
         self.set_title(new_label if new_label else f"Port {port} • {protocol}")
         
+        if new_label:
+            if not hasattr(self, '_port_row_added') or not self._port_row_added:
+                self.add_row(self.port_row)
+                self._port_row_added = True
+        else:
+            if hasattr(self, '_port_row_added') and self._port_row_added:
+                self.remove(self.port_row)
+                self._port_row_added = False
+        
+        dialog = row.get_root()
+        if dialog:
+            dialog.close()
+
         win = self.get_root()
         if win and hasattr(win, "add_toast"):
             win.add_toast("Label updated")
 
     def _on_refresh_name_clicked(self):
         """Cycle the Playit tunnel to a new hostname."""
-        was_running = self.manager.is_running
+        if not self.manager.is_running:
+            self._show_error("Agent Not Running", "The Playit agent must be running to cycle the tunnel hostname.")
+            return
+
         port = int(self.config["port"])
         protocol = self.config["protocol"].lower()
 
         def cycle_thread():
-            if was_running:
-                self.manager.stop()
             if not self.manager.initialized:
                 self.manager.initialize()
             if self.manager.initialized:
                 self.manager.delete_tunnels(port, protocol)
-            if was_running:
-                ok, msg = self.manager.start(port, protocol=protocol, allow_unclaimed=False, auto_install=False)
-                if not ok:
-                    GLib.idle_add(self._show_error, "Refresh Failed", msg)
-            else:
-                GLib.idle_add(lambda: self.get_root().add_toast("Tunnel hostname cycled") if hasattr(self.get_root(), "add_toast") else None)
+                # Ensure a new one is created immediately
+                self.manager.get_tunnel(port, protocol=protocol, ensure=True, label=self.config.get("label", "carabiner"))
+                
+            GLib.idle_add(lambda: self.get_root().add_toast("Tunnel hostname cycled") if hasattr(self.get_root(), "add_toast") else None)
 
         threading.Thread(target=cycle_thread, daemon=True).start()
 
@@ -376,7 +472,7 @@ class TunnelRow(Adw.ExpanderRow):
         win = self.get_root()
         label = self.config.get("label", "").strip()
         name = label if label else f"{self.config['provider']} port {self.config['port']}"
-        dialog = Adw.MessageDialog(
+        dialog = Adw.AlertDialog(
             heading="Delete Tunnel?",
             body=f"\u201c{name}\u201d will be permanently removed."
         )
@@ -385,8 +481,7 @@ class TunnelRow(Adw.ExpanderRow):
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
-        dialog.set_transient_for(win)
-
+        
         def _on_response(d, response):
             if response == "delete":
                 remove_tunnel(self.config["id"])
@@ -394,7 +489,7 @@ class TunnelRow(Adw.ExpanderRow):
                     self.on_delete("Tunnel deleted")
 
         dialog.connect("response", _on_response)
-        dialog.present()
+        dialog.present(win)
 
     def _on_switch_toggled(self, switch, state):
         if state:
@@ -533,17 +628,21 @@ class SetupNgrokAuthPage(Adw.NavigationPage):
         
     def _on_saved_result(self, ok, msg):
         if ok:
+            # Update settings.json
+            settings = load_settings()
+            settings["ngrok_token"] = self.token_entry.get_text().strip()
+            save_settings(settings)
+            
             self.next_step_cb()
         else:
             self.save_btn.set_sensitive(True)
             self.token_entry.set_sensitive(True)
             self.save_btn.set_label("Save & Continue")
             win = self.get_root()
-            dialog = Adw.MessageDialog(heading="Error", body=f"Failed to set token: {msg}")
+            dialog = Adw.AlertDialog(heading="Error", body=f"Failed to set token: {msg}")
             dialog.add_response("ok", "OK")
-            dialog.connect("response", lambda d, r: d.destroy() if hasattr(d, "destroy") else None)
-            dialog.set_transient_for(win)
-            dialog.present()
+            dialog.connect("response", lambda d, r: None)
+            dialog.present(win)
 
 
 class SetupPlayitAuthPage(Adw.NavigationPage):
@@ -644,6 +743,11 @@ class SetupPlayitAuthPage(Adw.NavigationPage):
         
     def _on_linked(self, ok, msg):
         if ok:
+            # Update settings.json
+            settings = load_settings()
+            settings["playit_token"] = self.code_entry.get_text().strip()
+            save_settings(settings)
+            
             self.next_step_cb()
         else:
             self.link_btn.set_sensitive(True)
@@ -651,11 +755,10 @@ class SetupPlayitAuthPage(Adw.NavigationPage):
             self.link_btn.set_label("Link Account")
             
             win = self.get_root()
-            dialog = Adw.MessageDialog(heading="Link Failed", body=msg)
+            dialog = Adw.AlertDialog(heading="Link Failed", body=msg)
             dialog.add_response("ok", "OK")
-            dialog.connect("response", lambda d, r: d.destroy() if hasattr(d, "destroy") else None)
-            dialog.set_transient_for(win)
-            dialog.present()
+            dialog.connect("response", lambda d, r: None)
+            dialog.present(win)
 
 
 class SetupDetailsPage(Adw.NavigationPage):
@@ -782,11 +885,10 @@ class SetupProviderPage(Adw.NavigationPage):
     def _restore_content_and_show_error(self, msg):
         self.toolbar_view.set_content(self.original_page)
         win = self.get_root()
-        dialog = Adw.MessageDialog(heading="Download Failed", body=msg)
+        dialog = Adw.AlertDialog(heading="Download Failed", body=msg)
         dialog.add_response("ok", "OK")
-        dialog.connect("response", lambda d, r: d.destroy() if hasattr(d, "destroy") else None)
-        dialog.set_transient_for(win)
-        dialog.present()
+        dialog.connect("response", lambda d, r: None)
+        dialog.present(win)
 
     def _on_provider_selected(self, provider):
         manager = get_provider_manager(provider)
@@ -870,13 +972,23 @@ class CarabinerWindow(Adw.ApplicationWindow):
         self.header.pack_end(self.menu_btn)
         
         menu = Gio.Menu.new()
+        menu.append("Preferences", "win.preferences")
         menu.append("About Carabiner", "win.about")
+        menu.append("Quit", "win.quit")
         self.menu_btn.set_menu_model(menu)
         
         # Add actions
+        preferences_action = Gio.SimpleAction.new("preferences", None)
+        preferences_action.connect("activate", self._on_preferences_activated)
+        self.add_action(preferences_action)
+
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self._on_about_activated)
         self.add_action(about_action)
+        
+        quit_action = Gio.SimpleAction.new("quit", None)
+        quit_action.connect("activate", lambda a, p: self.close())
+        self.add_action(quit_action)
         
         self.toolbar_view.add_top_bar(self.header)
         
@@ -904,9 +1016,12 @@ class CarabinerWindow(Adw.ApplicationWindow):
         dialog = SetupDialog(self._refresh_ui)
         dialog.present(self)
         
+    def _on_preferences_activated(self, action, param):
+        dialog = PreferencesDialog()
+        dialog.present(self)
+        
     def _on_about_activated(self, action, param):
-        about = Adw.AboutWindow(
-            transient_for=self,
+        about = Adw.AboutDialog(
             application_name=APP_NAME,
             application_icon=APP_ID,
             developer_name="sugarycandybar",
@@ -915,7 +1030,7 @@ class CarabinerWindow(Adw.ApplicationWindow):
             issue_url=f"{APP_WEBSITE}/issues",
             license_type=Gtk.License.GPL_3_0
         )
-        about.present()
+        about.present(self)
         
     def _refresh_ui(self, toast_msg=None):
         if toast_msg:

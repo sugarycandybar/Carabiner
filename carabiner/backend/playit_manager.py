@@ -745,14 +745,24 @@ class PlayitManager(EventEmitter):
 
             self.tunnel_cache.add_tunnel(tunnel_id, tunnel_data)
 
-            for _ in range(15):
+            # Wait longer for the tunnel to become active on the server side
+            for _ in range(30):
                 self._retrieve_tunnels()
                 for tunnel in self.tunnels.get(protocol, []):
-                    if tunnel.status != "pending" and tunnel.id == tunnel_id:
-                        return tunnel
+                    # Check for the specific tunnel ID we just created
+                    if tunnel.id == tunnel_id:
+                        # Return if it has a hostname (active)
+                        if tunnel.hostname:
+                            return tunnel
+                        # Otherwise, continue waiting
                 time.sleep(1)
         except Exception:
             return None
+        finally:
+            if self.is_running:
+                self._set_status("running")
+            else:
+                self._set_status("stopped")
 
         return None
 
@@ -785,10 +795,17 @@ class PlayitManager(EventEmitter):
     def get_tunnel(self, port: int, protocol: str = "tcp", ensure: bool = False, label: str = "") -> Tunnel | None:
         self._retrieve_tunnels()
 
+        # Only try to match tunnels with hostnames for "running" status.
+        # If a tunnel is pending (being created), we need to see it.
         for tunnel in self.tunnels.get(protocol, []):
             if tunnel.port == int(port) and not tunnel.in_use:
-                return tunnel
-
+                # If it already has a hostname, it's good to use.
+                if tunnel.hostname:
+                    return tunnel
+                # If it's pending, we should keep waiting, but don't return it yet.
+                elif tunnel.status == "pending":
+                    continue
+        
         if not ensure:
             return None
 
@@ -932,6 +949,17 @@ class PlayitManager(EventEmitter):
 
         # Refresh tunnel list so endpoints are available
         self._retrieve_tunnels()
+        
+        # Proactively ensure all configured tunnels exist on the playit side
+        from carabiner.backend.tunnel_store import load_tunnels
+        for t_config in load_tunnels():
+            if t_config["provider"].lower() == "playit":
+                self.get_tunnel(
+                    port=t_config["port"],
+                    protocol=t_config["protocol"].lower(),
+                    ensure=True,
+                    label=t_config.get("label", "carabiner")
+                )
 
         if not self._start_agent_service(binary):
             self._set_status("stopped")
@@ -947,6 +975,7 @@ class PlayitManager(EventEmitter):
         self._watch_thread.start()
 
         return True, "playit agent started"
+
 
     def regenerate_domain(
         self,
