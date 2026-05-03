@@ -209,9 +209,6 @@ class TunnelRow(Adw.ExpanderRow):
         self.suffix_box.set_valign(Gtk.Align.CENTER)
         self.add_suffix(self.suffix_box)
 
-        # Initialize public_url early so cycle row can access it
-        self.public_url = self.manager.public_endpoint or self.config.get("public_url", "")
-
         # Main row copy button
         self.main_copy_btn = Gtk.Button()
         self.main_copy_btn.set_icon_name("edit-copy-symbolic")
@@ -229,11 +226,6 @@ class TunnelRow(Adw.ExpanderRow):
             self.switch.connect("state-set", self._on_switch_toggled)
             self.suffix_box.append(self.switch)
 
-        # Local Port Row (removed from main list)
-        self.port_row = Adw.ActionRow()
-        self.port_row.set_title("Local Port")
-        self.port_row.set_subtitle(f"Port {port} • {protocol}")
-
         # Info row
         self.info_row = Adw.ActionRow()
         self.info_row.set_title("Tunnel Info")
@@ -249,22 +241,6 @@ class TunnelRow(Adw.ExpanderRow):
         self.info_row.add_suffix(info_btn)
         self.add_row(self.info_row)
 
-        # Cycle button (Playit) - in main row
-        if provider == "Playit":
-            self.cycle_row = Adw.ActionRow()
-            self.cycle_row.set_title("Cycle Hostname")
-            if self.public_url:
-                self.cycle_row.set_subtitle(self.public_url)
-            else:
-                self.cycle_row.set_subtitle("Get a new public link")
-            cycle_btn = Gtk.Button()
-            cycle_btn.set_icon_name("view-refresh-symbolic")
-            cycle_btn.set_valign(Gtk.Align.CENTER)
-            cycle_btn.add_css_class("flat")
-            cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked())
-            self.cycle_row.add_suffix(cycle_btn)
-            self.add_row(self.cycle_row)
-
         # Inner rows
 
         # Delete button
@@ -279,6 +255,7 @@ class TunnelRow(Adw.ExpanderRow):
         self.add_row(self.delete_row)
 
         self.public_url = self.manager.public_endpoint or self.config.get("public_url", "")
+        self._is_cycling_hostname = False
         self._update_status_ui(self.manager.status)
 
     def _on_status_changed(self, manager, status):
@@ -352,20 +329,11 @@ class TunnelRow(Adw.ExpanderRow):
 
         self.main_copy_btn.set_visible(show_url)
         
-        # Update cycle row subtitle if it exists (main row and info dialog)
-        if hasattr(self, "cycle_row") and self.cycle_row:
-            if self.public_url:
-                self.cycle_row.set_subtitle(self.public_url)
-            else:
-                self.cycle_row.set_subtitle("Get a new public link")
-        if hasattr(self, "_cycle_row") and self._cycle_row:
-            if self.public_url:
-                self._cycle_row.set_subtitle(self.public_url)
-            else:
-                self._cycle_row.set_subtitle("Get a new public link")
-        
         if hasattr(self, "_info_url_row") and self._info_url_row:
-            self._info_url_row.set_subtitle(self.public_url if self.public_url else "Not available")
+            if getattr(self, "_is_cycling_hostname", False):
+                self._info_url_row.set_subtitle("Creating...")
+            else:
+                self._info_url_row.set_subtitle(self.public_url if self.public_url else "Not available")
 
     def _on_endpoint_changed(self, manager, endpoint, claim_url):
         if self.config["provider"] == "Playit":
@@ -397,8 +365,11 @@ class TunnelRow(Adw.ExpanderRow):
         dialog.set_content_width(380)
         dialog.set_content_height(420)
 
+        toast_overlay = Adw.ToastOverlay()
+        dialog.set_child(toast_overlay)
+
         toolbar = Adw.ToolbarView()
-        dialog.set_child(toolbar)
+        toast_overlay.set_child(toolbar)
 
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title="Tunnel Info"))
@@ -441,20 +412,14 @@ class TunnelRow(Adw.ExpanderRow):
         if self.config["provider"] == "Playit":
             cycle_row = Adw.ActionRow()
             cycle_row.set_title("Cycle Hostname")
-            # Set initial subtitle to current public URL if available
-            if self.public_url:
-                cycle_row.set_subtitle(self.public_url)
-            else:
-                cycle_row.set_subtitle("Get a new public link")
+            cycle_row.set_subtitle("Get a new public link")
             cycle_btn = Gtk.Button()
             cycle_btn.set_icon_name("view-refresh-symbolic")
             cycle_btn.set_valign(Gtk.Align.CENTER)
             cycle_btn.add_css_class("flat")
-            cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked())
+            cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked(toast_overlay, cycle_row, cycle_btn))
             cycle_row.add_suffix(cycle_btn)
             group.add(cycle_row)
-            # Store reference to cycle row for updates
-            self._cycle_row = cycle_row
 
         dialog.present(win)
 
@@ -467,15 +432,6 @@ class TunnelRow(Adw.ExpanderRow):
         protocol = self.config["protocol"]
         self.set_title(new_label if new_label else f"Port {port} • {protocol}")
         
-        if new_label:
-            if not hasattr(self, '_port_row_added') or not self._port_row_added:
-                self.add_row(self.port_row)
-                self._port_row_added = True
-        else:
-            if hasattr(self, '_port_row_added') and self._port_row_added:
-                self.remove(self.port_row)
-                self._port_row_added = False
-        
         dialog = row.get_root()
         if dialog:
             dialog.close()
@@ -484,24 +440,50 @@ class TunnelRow(Adw.ExpanderRow):
         if win and hasattr(win, "add_toast"):
             win.add_toast("Label updated")
 
-    def _on_refresh_name_clicked(self):
+    def _on_refresh_name_clicked(self, toast_overlay=None, cycle_row=None, cycle_btn=None):
         """Cycle the Playit tunnel to a new hostname."""
-        if not self.manager.is_running:
-            self._show_error("Agent Not Running", "The Playit agent must be running to cycle the tunnel hostname.")
-            return
-
         port = int(self.config["port"])
         protocol = self.config["protocol"].lower()
+        win = self.get_root()
+        self._is_cycling_hostname = True
+
+        if hasattr(self, "_info_url_row") and self._info_url_row:
+            self._info_url_row.set_subtitle("Creating...")
+        if cycle_row:
+            cycle_row.set_subtitle("Cycling...")
+        if cycle_btn:
+            cycle_btn.set_sensitive(False)
+
+        def finish_cycle(public_url=None):
+            self._is_cycling_hostname = False
+            if public_url:
+                self.public_url = public_url
+                from carabiner.backend.tunnel_store import update_tunnel_url
+                update_tunnel_url(self.config["id"], public_url)
+
+            if hasattr(self, "_info_url_row") and self._info_url_row:
+                self._info_url_row.set_subtitle(self.public_url if self.public_url else "Not available")
+            if cycle_row and cycle_row.get_root():
+                cycle_row.set_subtitle("Get a new public link")
+            if cycle_btn and cycle_btn.get_root():
+                cycle_btn.set_sensitive(True)
+
+            if toast_overlay and toast_overlay.get_root():
+                toast_overlay.add_toast(Adw.Toast(title="Tunnel hostname cycled"))
+            elif win and hasattr(win, "add_toast"):
+                win.add_toast("Tunnel hostname cycled")
+            return False
 
         def cycle_thread():
+            tunnel = None
             if not self.manager.initialized:
                 self.manager.initialize()
             if self.manager.initialized:
                 self.manager.delete_tunnels(port, protocol)
                 # Ensure a new one is created immediately
-                self.manager.get_tunnel(port, protocol=protocol, ensure=True, label=self.config.get("label", "carabiner"))
+                tunnel = self.manager.get_tunnel(port, protocol=protocol, ensure=True, label=self.config.get("label", "carabiner"))
                 
-            GLib.idle_add(lambda: self.get_root().add_toast("Tunnel hostname cycled") if hasattr(self.get_root(), "add_toast") else None)
+            GLib.idle_add(finish_cycle, tunnel.hostname if tunnel and tunnel.hostname else None)
 
         threading.Thread(target=cycle_thread, daemon=True).start()
 
