@@ -246,6 +246,22 @@ class TunnelRow(Adw.ExpanderRow):
         self.info_row.add_suffix(info_btn)
         self.add_row(self.info_row)
 
+        # Cycle button (Playit) - in main row
+        if provider == "Playit":
+            self.cycle_row = Adw.ActionRow()
+            self.cycle_row.set_title("Cycle Hostname")
+            if self.public_url:
+                self.cycle_row.set_subtitle(self.public_url)
+            else:
+                self.cycle_row.set_subtitle("Get a new public link")
+            cycle_btn = Gtk.Button()
+            cycle_btn.set_icon_name("view-refresh-symbolic")
+            cycle_btn.set_valign(Gtk.Align.CENTER)
+            cycle_btn.add_css_class("flat")
+            cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked())
+            self.cycle_row.add_suffix(cycle_btn)
+            self.add_row(self.cycle_row)
+
         # Inner rows
 
         # Delete button
@@ -333,6 +349,18 @@ class TunnelRow(Adw.ExpanderRow):
 
         self.main_copy_btn.set_visible(show_url)
         
+        # Update cycle row subtitle if it exists (main row and info dialog)
+        if hasattr(self, "cycle_row") and self.cycle_row:
+            if self.public_url:
+                self.cycle_row.set_subtitle(self.public_url)
+            else:
+                self.cycle_row.set_subtitle("Get a new public link")
+        if hasattr(self, "_cycle_row") and self._cycle_row:
+            if self.public_url:
+                self._cycle_row.set_subtitle(self.public_url)
+            else:
+                self._cycle_row.set_subtitle("Get a new public link")
+        
         if hasattr(self, "_info_url_row") and self._info_url_row:
             self._info_url_row.set_subtitle(self.public_url if self.public_url else "Not available")
 
@@ -410,7 +438,11 @@ class TunnelRow(Adw.ExpanderRow):
         if self.config["provider"] == "Playit":
             cycle_row = Adw.ActionRow()
             cycle_row.set_title("Cycle Hostname")
-            cycle_row.set_subtitle("Get a new public link")
+            # Set initial subtitle to current public URL if available
+            if self.public_url:
+                cycle_row.set_subtitle(self.public_url)
+            else:
+                cycle_row.set_subtitle("Get a new public link")
             cycle_btn = Gtk.Button()
             cycle_btn.set_icon_name("view-refresh-symbolic")
             cycle_btn.set_valign(Gtk.Align.CENTER)
@@ -418,6 +450,8 @@ class TunnelRow(Adw.ExpanderRow):
             cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked())
             cycle_row.add_suffix(cycle_btn)
             group.add(cycle_row)
+            # Store reference to cycle row for updates
+            self._cycle_row = cycle_row
 
         dialog.present(win)
 
