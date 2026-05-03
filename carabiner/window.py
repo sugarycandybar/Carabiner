@@ -209,6 +209,9 @@ class TunnelRow(Adw.ExpanderRow):
         self.suffix_box.set_valign(Gtk.Align.CENTER)
         self.add_suffix(self.suffix_box)
 
+        # Initialize public_url early so cycle row can access it
+        self.public_url = self.manager.public_endpoint or self.config.get("public_url", "")
+
         # Main row copy button
         self.main_copy_btn = Gtk.Button()
         self.main_copy_btn.set_icon_name("edit-copy-symbolic")
