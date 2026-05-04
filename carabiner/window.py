@@ -109,6 +109,7 @@ class PlayitAgentRow(Adw.ActionRow):
         self.switch.set_valign(Gtk.Align.CENTER)
         self.switch.connect("state-set", self._on_switch_toggled)
         self.add_suffix(self.switch)
+        self.set_activatable_widget(self.switch)
 
         self.connect("destroy", self._on_destroy)
         self._status_handler = self.manager.connect("status-changed", self._on_status_changed)
@@ -252,6 +253,7 @@ class TunnelRow(Adw.ExpanderRow):
         self.delete_btn.set_valign(Gtk.Align.CENTER)
         self.delete_btn.connect("clicked", lambda b: self._on_delete_clicked())
         self.delete_row.add_suffix(self.delete_btn)
+        self.delete_row.set_activatable_widget(self.delete_btn)
         self.add_row(self.delete_row)
 
         self.public_url = self.manager.public_endpoint or self.config.get("public_url", "")
@@ -419,6 +421,7 @@ class TunnelRow(Adw.ExpanderRow):
             cycle_btn.add_css_class("flat")
             cycle_btn.connect("clicked", lambda b: self._on_refresh_name_clicked(toast_overlay, cycle_row, cycle_btn))
             cycle_row.add_suffix(cycle_btn)
+            cycle_row.set_activatable_widget(cycle_btn)
             group.add(cycle_row)
 
         dialog.present(win)
@@ -442,6 +445,9 @@ class TunnelRow(Adw.ExpanderRow):
 
     def _on_refresh_name_clicked(self, toast_overlay=None, cycle_row=None, cycle_btn=None):
         """Cycle the Playit tunnel to a new hostname."""
+        if getattr(self, "_is_cycling_hostname", False):
+            return
+
         port = int(self.config["port"])
         protocol = self.config["protocol"].lower()
         win = self.get_root()
