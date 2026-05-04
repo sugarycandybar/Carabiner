@@ -89,7 +89,6 @@ class PreferencesDialog(Adw.Dialog):
 
         self.background_row = Adw.ActionRow()
         self.background_row.set_title("Run in Background")
-        self.background_row.set_subtitle("Keep Carabiner running after the window is closed")
         self.background_switch = Gtk.Switch()
         self.background_switch.set_valign(Gtk.Align.CENTER)
         set_switch_active(self.background_switch, self.settings.get("run_in_background"))
@@ -100,7 +99,6 @@ class PreferencesDialog(Adw.Dialog):
 
         self.login_row = Adw.ActionRow()
         self.login_row.set_title("Start on Login")
-        self.login_row.set_subtitle("Launch Carabiner in the background when you sign in")
         self.login_switch = Gtk.Switch()
         self.login_switch.set_valign(Gtk.Align.CENTER)
         set_switch_active(self.login_switch, self.settings.get("start_on_login"))
@@ -111,7 +109,7 @@ class PreferencesDialog(Adw.Dialog):
 
         self.playit_agent_row = Adw.ActionRow()
         self.playit_agent_row.set_title("Start Playit Agent")
-        self.playit_agent_row.set_subtitle("Start the shared Playit agent when Carabiner launches")
+        self.playit_agent_row.set_subtitle("Start Playit when Carabiner launches")
         self.playit_agent_switch = Gtk.Switch()
         self.playit_agent_switch.set_valign(Gtk.Align.CENTER)
         set_switch_active(self.playit_agent_switch, self.settings.get("playit_agent_autostart"))
@@ -359,7 +357,6 @@ class TunnelRow(Adw.ExpanderRow):
         if provider != "Playit":
             self.autostart_row = Adw.ActionRow()
             self.autostart_row.set_title("Start on Carabiner Launch")
-            self.autostart_row.set_subtitle("Start this tunnel when Carabiner launches")
             self.autostart_switch = Gtk.Switch()
             self.autostart_switch.set_valign(Gtk.Align.CENTER)
             set_switch_active(self.autostart_switch, self.config.get("autostart"))
