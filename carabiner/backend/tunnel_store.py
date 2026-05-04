@@ -48,6 +48,14 @@ def update_tunnel_label(t_id, label):
             save_tunnels(tunnels)
             break
 
+def update_tunnel_autostart(t_id, autostart):
+    tunnels = load_tunnels()
+    for t in tunnels:
+        if t["id"] == t_id:
+            t["autostart"] = bool(autostart)
+            save_tunnels(tunnels)
+            break
+
 def remove_tunnel(t_id):
     tunnels = load_tunnels()
     t_config = next((t for t in tunnels if t["id"] == t_id), None)
@@ -95,4 +103,3 @@ def stop_all_tunnels():
             p_mgr.stop()
     except Exception:
         pass
-

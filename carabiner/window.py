@@ -9,7 +9,9 @@ import re
 from carabiner.backend.playit_manager import PlayitManager
 from carabiner.backend.cloudflare_manager import CloudflareManager
 from carabiner.backend.ngrok_manager import NgrokManager
-from carabiner.backend.tunnel_store import load_tunnels, add_tunnel, remove_tunnel, update_tunnel_label, MANAGER_REGISTRY, stop_all_tunnels
+from carabiner.backend.portal import request_background, set_background_status
+from carabiner.backend.settings import load_settings, save_settings
+from carabiner.backend.tunnel_store import load_tunnels, add_tunnel, remove_tunnel, update_tunnel_autostart, update_tunnel_label, MANAGER_REGISTRY, stop_all_tunnels
 from carabiner.backend.constants import APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE
 
 _shared_playit_manager = None
@@ -43,23 +45,10 @@ def get_manager_for_tunnel(t_config):
     MANAGER_REGISTRY[t_id] = mgr
     return mgr
 
-import json
-from carabiner.backend.constants import DATA_DIR
-
-SETTINGS_FILE = DATA_DIR / "settings.json"
-
-def load_settings():
-    if not SETTINGS_FILE.exists():
-        return {"playit_token": "", "ngrok_token": ""}
-    try:
-        with open(SETTINGS_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"playit_token": "", "ngrok_token": ""}
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+def set_switch_active(switch, active):
+    active = bool(active)
+    switch.set_active(active)
+    switch.set_state(active)
 
 class PreferencesDialog(Adw.Dialog):
     def __init__(self):
@@ -68,6 +57,14 @@ class PreferencesDialog(Adw.Dialog):
         self.set_content_width(400)
         
         self.settings = load_settings()
+        self._updating_startup_switches = False
+
+        toolbar_view = Adw.ToolbarView()
+
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.WindowTitle(title="Preferences"))
+
+        toolbar_view.add_top_bar(header)
         
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup()
@@ -85,8 +82,46 @@ class PreferencesDialog(Adw.Dialog):
         self.ngrok_row.set_show_apply_button(True)
         self.ngrok_row.connect("apply", self._on_apply_ngrok)
         group.add(self.ngrok_row)
-        
-        self.set_child(page)
+
+        startup_group = Adw.PreferencesGroup()
+        startup_group.set_title("Startup")
+        page.add(startup_group)
+
+        self.background_row = Adw.ActionRow()
+        self.background_row.set_title("Run in Background")
+        self.background_row.set_subtitle("Keep Carabiner running after the window is closed")
+        self.background_switch = Gtk.Switch()
+        self.background_switch.set_valign(Gtk.Align.CENTER)
+        set_switch_active(self.background_switch, self.settings.get("run_in_background"))
+        self.background_switch.connect("state-set", self._on_background_toggled)
+        self.background_row.add_suffix(self.background_switch)
+        self.background_row.set_activatable_widget(self.background_switch)
+        startup_group.add(self.background_row)
+
+        self.login_row = Adw.ActionRow()
+        self.login_row.set_title("Start on Login")
+        self.login_row.set_subtitle("Launch Carabiner in the background when you sign in")
+        self.login_switch = Gtk.Switch()
+        self.login_switch.set_valign(Gtk.Align.CENTER)
+        set_switch_active(self.login_switch, self.settings.get("start_on_login"))
+        self.login_switch.connect("state-set", self._on_login_toggled)
+        self.login_row.add_suffix(self.login_switch)
+        self.login_row.set_activatable_widget(self.login_switch)
+        startup_group.add(self.login_row)
+
+        self.playit_agent_row = Adw.ActionRow()
+        self.playit_agent_row.set_title("Start Playit Agent")
+        self.playit_agent_row.set_subtitle("Start the shared Playit agent when Carabiner launches")
+        self.playit_agent_switch = Gtk.Switch()
+        self.playit_agent_switch.set_valign(Gtk.Align.CENTER)
+        set_switch_active(self.playit_agent_switch, self.settings.get("playit_agent_autostart"))
+        self.playit_agent_switch.connect("state-set", self._on_playit_agent_toggled)
+        self.playit_agent_row.add_suffix(self.playit_agent_switch)
+        self.playit_agent_row.set_activatable_widget(self.playit_agent_switch)
+        startup_group.add(self.playit_agent_row)
+
+        toolbar_view.set_content(page)
+        self.set_child(toolbar_view)
         
     def _on_apply_playit(self, row):
         self.settings["playit_token"] = row.get_text()
@@ -95,6 +130,82 @@ class PreferencesDialog(Adw.Dialog):
     def _on_apply_ngrok(self, row):
         self.settings["ngrok_token"] = row.get_text()
         save_settings(self.settings)
+
+    def _set_startup_switches_sensitive(self, sensitive):
+        self.background_switch.set_sensitive(sensitive)
+        self.login_switch.set_sensitive(sensitive)
+
+    def _set_startup_switch_active(self, switch, active):
+        self._updating_startup_switches = True
+        set_switch_active(switch, active)
+        self._updating_startup_switches = False
+
+    def _on_background_toggled(self, switch, state):
+        if self._updating_startup_switches:
+            return False
+
+        if not state:
+            self.settings["run_in_background"] = False
+            self.settings["start_on_login"] = False
+            save_settings(self.settings)
+            self._set_startup_switch_active(self.login_switch, False)
+            request_background(False, lambda *args: None)
+            return False
+
+        self._set_startup_switches_sensitive(False)
+
+        def finish(ok, background_allowed, autostart_enabled, message):
+            self._set_startup_switches_sensitive(True)
+            self.settings["run_in_background"] = bool(ok and background_allowed)
+            self._set_startup_switch_active(self.background_switch, self.settings["run_in_background"])
+            if not self.settings["run_in_background"]:
+                self.settings["start_on_login"] = False
+                self._set_startup_switch_active(self.login_switch, False)
+                if message:
+                    self._show_error("Background Permission", message)
+            save_settings(self.settings)
+
+        request_background(bool(self.settings.get("start_on_login")), finish)
+        return True
+
+    def _on_login_toggled(self, switch, state):
+        if self._updating_startup_switches:
+            return False
+
+        if not state:
+            self.settings["start_on_login"] = False
+            save_settings(self.settings)
+            request_background(False, lambda *args: None)
+            return False
+
+        self._set_startup_switches_sensitive(False)
+
+        def finish(ok, background_allowed, autostart_enabled, message):
+            self._set_startup_switches_sensitive(True)
+            self.settings["run_in_background"] = bool(ok and background_allowed)
+            self.settings["start_on_login"] = bool(ok and background_allowed and autostart_enabled and state)
+            self._set_startup_switch_active(self.background_switch, self.settings["run_in_background"])
+            self._set_startup_switch_active(self.login_switch, self.settings["start_on_login"])
+            if state and not self.settings["start_on_login"] and message:
+                self._show_error("Startup Permission", message)
+            save_settings(self.settings)
+
+        request_background(bool(state), finish)
+        return True
+
+    def _on_playit_agent_toggled(self, switch, state):
+        self.settings["playit_agent_autostart"] = bool(state)
+        save_settings(self.settings)
+        return False
+
+    def _show_error(self, title, msg):
+        win = self.get_root()
+        dialog = Adw.MessageDialog(heading=title, body=msg)
+        dialog.add_response("ok", "Close")
+        dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        if win:
+            dialog.set_transient_for(win)
+        dialog.present()
 
 class PlayitAgentRow(Adw.ActionRow):
     """Group-level row with a single switch to start/stop the Playit agent."""
@@ -243,6 +354,19 @@ class TunnelRow(Adw.ExpanderRow):
         self.add_row(self.info_row)
 
         # Inner rows
+        self.autostart_row = None
+        self.autostart_switch = None
+        if provider != "Playit":
+            self.autostart_row = Adw.ActionRow()
+            self.autostart_row.set_title("Start on Carabiner Launch")
+            self.autostart_row.set_subtitle("Start this tunnel when Carabiner launches")
+            self.autostart_switch = Gtk.Switch()
+            self.autostart_switch.set_valign(Gtk.Align.CENTER)
+            set_switch_active(self.autostart_switch, self.config.get("autostart"))
+            self.autostart_switch.connect("state-set", self._on_autostart_toggled)
+            self.autostart_row.add_suffix(self.autostart_switch)
+            self.autostart_row.set_activatable_widget(self.autostart_switch)
+            self.add_row(self.autostart_row)
 
         # Delete button
         self.delete_row = Adw.ActionRow()
@@ -524,6 +648,11 @@ class TunnelRow(Adw.ExpanderRow):
             if self.manager.is_running:
                 self.manager.stop()
         return True # Handled manually
+
+    def _on_autostart_toggled(self, switch, state):
+        self.config["autostart"] = bool(state)
+        update_tunnel_autostart(self.config["id"], bool(state))
+        return False
         
     def start_tunnel(self):
         port = int(self.config["port"])
@@ -974,6 +1103,7 @@ class SetupDialog(Adw.Dialog):
 class CarabinerWindow(Adw.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._quit_requested = False
         self.set_default_size(420, 560)
         self.set_title("Carabiner")
         
@@ -1012,7 +1142,7 @@ class CarabinerWindow(Adw.ApplicationWindow):
         self.add_action(about_action)
         
         quit_action = Gio.SimpleAction.new("quit", None)
-        quit_action.connect("activate", lambda a, p: self.close())
+        quit_action.connect("activate", self._on_quit_activated)
         self.add_action(quit_action)
         
         self.toolbar_view.add_top_bar(self.header)
@@ -1026,8 +1156,21 @@ class CarabinerWindow(Adw.ApplicationWindow):
         self.toast_overlay.add_toast(toast)
         
     def _on_close_request(self, *args):
+        if load_settings().get("run_in_background") and not self._quit_requested:
+            self.set_visible(False)
+            set_background_status("Carabiner running")
+            return True
+
+        app = self.get_application()
+        if app and hasattr(app, "release_background_hold"):
+            app.release_background_hold()
+
         stop_all_tunnels()
         return False # Continue closing
+
+    def _on_quit_activated(self, action, param):
+        self._quit_requested = True
+        self.close()
         
     def _show_error(self, title, msg):
         dialog = Adw.MessageDialog(heading=title, body=msg)

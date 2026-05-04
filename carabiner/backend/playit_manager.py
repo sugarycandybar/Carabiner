@@ -918,7 +918,7 @@ class PlayitManager(EventEmitter):
 
         return True, "playit started"
 
-    def start_agent(self) -> tuple[bool, str]:
+    def start_agent(self, tunnel_configs: Optional[list[dict]] = None) -> tuple[bool, str]:
         """Start the playit agent subprocess without targeting a specific tunnel.
 
         Initializes the API session and starts the agent process so that all
@@ -951,8 +951,11 @@ class PlayitManager(EventEmitter):
         self._retrieve_tunnels()
         
         # Proactively ensure all configured tunnels exist on the playit side
-        from carabiner.backend.tunnel_store import load_tunnels
-        for t_config in load_tunnels():
+        if tunnel_configs is None:
+            from carabiner.backend.tunnel_store import load_tunnels
+            tunnel_configs = load_tunnels()
+
+        for t_config in tunnel_configs:
             if t_config["provider"].lower() == "playit":
                 self.get_tunnel(
                     port=t_config["port"],

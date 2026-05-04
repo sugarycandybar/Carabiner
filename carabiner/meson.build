@@ -16,7 +16,10 @@ backend_sources = [
   'backend/constants.py',
   'backend/events.py',
   'backend/ngrok_manager.py',
+  'backend/portal.py',
   'backend/playit_manager.py',
+  'backend/settings.py',
+  'backend/startup.py',
   'backend/tunnel_store.py',
 ]
 
