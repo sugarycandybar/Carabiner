@@ -11,8 +11,8 @@
   <update_contact>139514123+sugarycandybar@users.noreply.github.com</update_contact>
   <description>
     <p>
-      Carabiner is a desktop application designed to simplify the creation and management 
-      of secure network tunnels on Linux. It provides a clean, native-style interface 
+      Carabiner is a desktop application designed to simplify the creation and management
+      of secure network tunnels on Linux. It provides a clean, native-style interface
       for multiple tunnel providers, removing the need for complex CLI configurations.
     </p>
     <ul>
@@ -43,6 +43,11 @@
   <url type="bugtracker">https://github.com/sugarycandybar/Carabiner/issues</url>
   <url type="vcs-browser">https://github.com/sugarycandybar/Carabiner</url>
   <releases>
+    <release version="1.1.0" date="2026-05-04">
+      <description>
+        <p>Port to Rust.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-05-01">
       <description>
         <p>Initial release</p>

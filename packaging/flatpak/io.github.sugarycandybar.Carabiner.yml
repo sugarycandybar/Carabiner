@@ -3,16 +3,23 @@ runtime: org.gnome.Platform
 runtime-version: "50"
 sdk: org.gnome.Sdk
 command: carabiner
+
 finish-args:
   - --share=network
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
+
 modules:
-  - python3-requirements.json
   - name: carabiner
     buildsystem: meson
+    build-options:
+      build-args:
+        - --share=network
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/carabiner/cargo
     sources:
       - type: dir
         path: ../../

@@ -1,3 +1,0 @@
-"""
-Carabiner Backend Package.
-"""
