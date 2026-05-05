@@ -186,10 +186,34 @@ impl CarabinerWindow {
             .application_icon(APP_ID)
             .developer_name("sugarycandybar")
             .version(APP_VERSION)
-            .website(APP_WEBSITE)
+            .comments("Create and manage secure network tunnels.")
             .issue_url(format!("{APP_WEBSITE}/issues"))
             .license_type(gtk::License::Gpl30)
             .build();
+
+        about.add_link("Website", APP_WEBSITE);
+
+        about.add_acknowledgement_section(
+            Some("Tunnel Services"),
+            &[
+                "playit https://playit.gg",
+                "ngrok https://ngrok.com",
+                "Cloudflare https://www.cloudflare.com",
+            ],
+        );
+
+        about.add_other_app(
+            "io.github.sugarycandybar.Hosty",
+            "Hosty",
+            "Host Minecraft servers",
+        );
+
+        about.add_other_app(
+            "io.github.sugarycandybar.Crucible",
+            "Crucible",
+            "View specs and stress test hardware",
+        );
+
         about.present(Some(&self.window));
     }
 

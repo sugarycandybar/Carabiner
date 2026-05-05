@@ -50,6 +50,8 @@ install_data(
 )
 
 install_data('data/icons/hicolor/scalable/apps/io.github.sugarycandybar.Carabiner.svg',
+  'data/icons/hicolor/scalable/apps/io.github.sugarycandybar.Hosty.svg',
+  'data/icons/hicolor/scalable/apps/io.github.sugarycandybar.Crucible.svg',
   install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps'
 )
 
