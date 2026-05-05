@@ -354,19 +354,28 @@ impl NgrokManager {
         if let Some(mut child) = self.state.lock().unwrap().process.take() {
             let _ = child.wait();
         }
+        let was_stopping = self.status() == "stopping";
         self.set_endpoint("");
-        if last_error.is_empty() {
+        if was_stopping || last_error.is_empty() {
             self.set_status("stopped");
         } else {
             self.set_status(&format!("error: {last_error}"));
         }
     }
 
-    pub fn stop(&self) {
-        if let Some(mut child) = self.state.lock().unwrap().process.take() {
+    pub fn stop(self: &Arc<Self>) {
+        let child = self.state.lock().unwrap().process.take();
+        if let Some(mut child) = child {
             self.set_status("stopping");
-            util::terminate_child(&mut child, Duration::from_secs(3));
+            let manager = self.clone();
+            thread::spawn(move || {
+                util::terminate_child(&mut child, Duration::from_secs(3));
+                manager.set_endpoint("");
+                manager.set_status("stopped");
+            });
+            return;
         }
+
         self.set_endpoint("");
         self.set_status("stopped");
     }

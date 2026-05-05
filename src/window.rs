@@ -333,29 +333,7 @@ impl PreferencesDialog {
         login_row.set_activatable_widget(Some(&login_switch));
         startup_group.add(&login_row);
 
-        let playit_agent_row = adw::ActionRow::new();
-        playit_agent_row.set_title("Start Playit Agent");
-        playit_agent_row.set_subtitle("Start Playit when Carabiner launches");
-        let playit_agent_switch = gtk::Switch::new();
-        playit_agent_switch.set_valign(gtk::Align::Center);
-        set_switch_active(
-            &playit_agent_switch,
-            settings.borrow().get_bool("playit_agent_autostart"),
-        );
-        playit_agent_row.add_suffix(&playit_agent_switch);
-        playit_agent_row.set_activatable_widget(Some(&playit_agent_switch));
-        startup_group.add(&playit_agent_row);
-
-        {
-            let settings = settings.clone();
-            playit_agent_switch.connect_state_set(move |_, state| {
-                settings
-                    .borrow_mut()
-                    .set_bool("playit_agent_autostart", state);
-                settings.borrow().save();
-                false.into()
-            });
-        }
+        
 
         {
             let settings = settings.clone();
@@ -475,20 +453,29 @@ impl PreferencesDialog {
 }
 
 struct PlayitAgentRow {
-    row: adw::ActionRow,
+    row: adw::ExpanderRow,
 }
 
 impl PlayitAgentRow {
     fn new(toast_overlay: &adw::ToastOverlay) -> Self {
         let manager = get_shared_playit_manager();
-        let row = adw::ActionRow::new();
+        let row = adw::ExpanderRow::new();
         row.set_title("Playit Agent");
         row.set_subtitle("Stopped");
 
         let switch = gtk::Switch::new();
         switch.set_valign(gtk::Align::Center);
         row.add_suffix(&switch);
-        row.set_activatable_widget(Some(&switch));
+
+        // Inner autostart row moved into the expander
+        let autostart_row = adw::ActionRow::new();
+        autostart_row.set_title("Start on Carabiner Launch");
+        let autostart_switch = gtk::Switch::new();
+        autostart_switch.set_valign(gtk::Align::Center);
+        set_switch_active(&autostart_switch, load_settings().get_bool("playit_agent_autostart"));
+        autostart_row.add_suffix(&autostart_switch);
+        autostart_row.set_activatable_widget(Some(&autostart_switch));
+        row.add_row(&autostart_row);
 
         let error_open = Rc::new(RefCell::new(false));
         Self::update_status(&row, &switch, &error_open, &manager.status());
@@ -522,10 +509,20 @@ impl PlayitAgentRow {
                             let _ = start_tx.send(manager.start_agent(None));
                         });
                     }
-                } else if manager.is_running() {
+                } else {
                     let _ = manager.stop();
                 }
                 true.into()
+            });
+        }
+
+        // hook autostart switch to persistent settings
+        {
+            autostart_switch.connect_state_set(move |_, state| {
+                let mut settings = load_settings();
+                settings.set_bool("playit_agent_autostart", state);
+                settings.save();
+                false.into()
             });
         }
 
@@ -564,7 +561,7 @@ impl PlayitAgentRow {
     }
 
     fn update_status(
-        row: &adw::ActionRow,
+        row: &adw::ExpanderRow,
         switch: &gtk::Switch,
         _error_open: &Rc<RefCell<bool>>,
         status: &str,
@@ -733,7 +730,7 @@ impl TunnelRow {
                             let _ = start_tx.send((ok, msg));
                         });
                     }
-                } else if manager.is_running() {
+                } else {
                     manager.stop();
                 }
                 let _ = &row_for_error;

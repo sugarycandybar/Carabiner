@@ -255,11 +255,19 @@ impl CloudflareManager {
         self.set_status("stopped");
     }
 
-    pub fn stop(&self) {
-        if let Some(mut child) = self.state.lock().unwrap().process.take() {
+    pub fn stop(self: &Arc<Self>) {
+        let child = self.state.lock().unwrap().process.take();
+        if let Some(mut child) = child {
             self.set_status("stopping");
-            util::terminate_child(&mut child, std::time::Duration::from_secs(3));
+            let manager = self.clone();
+            thread::spawn(move || {
+                util::terminate_child(&mut child, std::time::Duration::from_secs(3));
+                manager.set_endpoint("");
+                manager.set_status("stopped");
+            });
+            return;
         }
+
         self.set_endpoint("");
         self.set_status("stopped");
     }

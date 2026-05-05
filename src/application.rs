@@ -22,6 +22,8 @@ pub fn run() -> glib::ExitCode {
         .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
         .build();
 
+    app.set_accels_for_action("win.quit", &["<Control>q"]);
+
     let state = Rc::new(AppState::default());
 
     {
