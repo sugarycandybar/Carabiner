@@ -1,20 +1,50 @@
-# Carabiner (Rust)
+# Carabiner
 
-Native Rust port of the Python Carabiner GTK4/libadwaita app.
+Carabiner is a desktop application designed to simplify the creation and management of secure network tunnels on Linux. 
 
-The Rust version keeps the same application ID, data directory rules, JSON file names, provider setup flow, tunnel behavior, portal background request behavior, and command-line `--background` mode as the Python version.
+It provides a clean, native-style interface for multiple tunnel providers, removing the need for complex CLI configurations.
 
-## Build
+## Why Carabiner?
 
-Install GTK4 and libadwaita development packages, then run:
+- Easy to use: view and configure your network tunnels without complex CLI tools.
+- Integrated support: built-in support for Ngrok and Playit.
+- Live monitoring: watch tunnel status and logs in real time.
+- All in the app: setup wizards, management, and monitoring in one place.
+
+## Run Carabiner
+
+[![Download on Flathub](https://flathub.org/assets/badges/flathub-badge-en.png)](https://flathub.org/en/apps/io.github.sugarycandybar.Carabiner)
+
+<details>
+<summary>Run from source (Rust)</summary>
+
+### Linux
+
+1. Install GTK4/libadwaita system packages:
+
+```bash
+# Fedora
+sudo dnf install gtk4-devel libadwaita-devel
+
+# Ubuntu/Debian
+sudo apt install libgtk-4-dev libadwaita-1-dev
+```
+
+2. Run Carabiner:
 
 ```bash
 cargo run
 ```
 
-This host does not have `libadwaita-1.pc` installed globally, so verification here used the installed GNOME SDK:
+### Building the Flatpak
 
 ```bash
-SDK=/var/lib/flatpak/runtime/org.gnome.Sdk/x86_64/50/1b43ad7e074959ab52d746fbd968108fe4f27bd53a4fb14adbb45aff4ef0354c/files
-PKG_CONFIG_PATH="$SDK/lib/x86_64-linux-gnu/pkgconfig:$SDK/share/pkgconfig:$SDK/lib/pkgconfig" cargo check
+flatpak-builder --user --install --force-clean build-dir packaging/flatpak/io.github.sugarycandybar.Carabiner.yml
+flatpak run io.github.sugarycandybar.Carabiner
 ```
+
+</details>
+
+## License
+
+GPL-3.0-or-later
