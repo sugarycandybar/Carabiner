@@ -184,7 +184,7 @@ impl CarabinerWindow {
         let about = adw::AboutDialog::builder()
             .application_name(APP_NAME)
             .application_icon(APP_ID)
-            .developer_name("sugarycandybar")
+            .developer_name("Sugarycandybar")
             .version(APP_VERSION)
             .comments("Create and manage secure network tunnels.")
             .issue_url(format!("{APP_WEBSITE}/issues"))
