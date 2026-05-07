@@ -353,6 +353,7 @@ impl PreferencesDialog {
         let login_switch = gtk::Switch::new();
         login_switch.set_valign(gtk::Align::Center);
         set_switch_active(&login_switch, settings.borrow().get_bool("start_on_login"));
+        login_row.set_sensitive(settings.borrow().get_bool("run_in_background"));
         login_row.add_suffix(&login_switch);
         login_row.set_activatable_widget(Some(&login_switch));
         startup_group.add(&login_row);
@@ -363,7 +364,10 @@ impl PreferencesDialog {
             let settings = settings.clone();
             let updating = updating_startup_switches.clone();
             let login_switch = login_switch.clone();
+            let login_row_clone = login_row.clone();
             background_switch.connect_state_set(move |switch, state| {
+                login_row_clone.set_sensitive(state);
+                
                 if *updating.borrow() {
                     return false.into();
                 }
@@ -379,8 +383,6 @@ impl PreferencesDialog {
                     return false.into();
                 }
 
-                switch.set_sensitive(false);
-                login_switch.set_sensitive(false);
                 let switch_clone = switch.clone();
                 let login_switch_clone = login_switch.clone();
                 let settings = settings.clone();
@@ -389,8 +391,6 @@ impl PreferencesDialog {
                 request_background(
                     autostart_requested,
                     move |ok, background_allowed, _autostart_enabled, message| {
-                        switch_clone.set_sensitive(true);
-                        login_switch_clone.set_sensitive(true);
                         let run_in_background = ok && background_allowed;
                         settings
                             .borrow_mut()
@@ -412,7 +412,7 @@ impl PreferencesDialog {
                         settings.borrow().save();
                     },
                 );
-                true.into()
+                false.into()
             });
         }
 
@@ -432,8 +432,6 @@ impl PreferencesDialog {
                     return false.into();
                 }
 
-                switch.set_sensitive(false);
-                background_switch.set_sensitive(false);
                 let switch_clone = switch.clone();
                 let background_switch_clone = background_switch.clone();
                 let settings = settings.clone();
@@ -441,8 +439,6 @@ impl PreferencesDialog {
                 request_background(
                     state,
                     move |ok, background_allowed, autostart_enabled, message| {
-                        switch_clone.set_sensitive(true);
-                        background_switch_clone.set_sensitive(true);
                         let run_in_background = ok && background_allowed;
                         let start_on_login = ok && background_allowed && autostart_enabled && state;
                         settings
@@ -461,7 +457,7 @@ impl PreferencesDialog {
                         settings.borrow().save();
                     },
                 );
-                true.into()
+                false.into()
             });
         }
 
