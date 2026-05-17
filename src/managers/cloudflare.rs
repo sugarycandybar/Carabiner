@@ -272,3 +272,50 @@ impl CloudflareManager {
         self.set_status("stopped");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_cloudflare_manager_initial_state() {
+        let manager = CloudflareManager::new();
+        assert_eq!(manager.status(), "stopped");
+        assert_eq!(manager.public_endpoint(), "");
+        assert!(!manager.is_running());
+    }
+
+    #[test]
+    fn test_cloudflare_stream_parsing() {
+        let manager = Arc::new(CloudflareManager::new());
+        let events = Arc::new(Mutex::new(Vec::new()));
+
+        let events_clone = events.clone();
+        manager.connect("endpoint-changed", move |event| {
+            if let ManagerEvent::EndpointChanged { endpoint, .. } = event {
+                events_clone.lock().unwrap().push(endpoint);
+            }
+        });
+
+        // Simulated log output containing a Quick Tunnel URL
+        let simulated_log = "\
+2026-05-16T22:37:52Z INF +------------------------------------------------------------+
+2026-05-16T22:37:52Z INF |  Your quick Tunnel has been created! Visit link:          |
+2026-05-16T22:37:52Z INF |  https://carabiner-test-12345.trycloudflare.com           |
+2026-05-16T22:37:52Z INF +------------------------------------------------------------+
+";
+
+        let reader = Cursor::new(simulated_log.as_bytes());
+        manager.clone().read_stream(Box::new(reader), false);
+
+        // Verify status and endpoint are updated correctly
+        assert_eq!(manager.status(), "running");
+        assert_eq!(manager.public_endpoint(), "https://carabiner-test-12345.trycloudflare.com");
+
+        let recorded_events = events.lock().unwrap();
+        assert_eq!(recorded_events.len(), 1);
+        assert_eq!(recorded_events[0], "https://carabiner-test-12345.trycloudflare.com");
+    }
+}
+

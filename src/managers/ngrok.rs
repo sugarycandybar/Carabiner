@@ -380,3 +380,56 @@ impl NgrokManager {
         self.set_status("stopped");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    fn setup() {
+        INIT.call_once(|| {
+            let temp_home = std::env::temp_dir().join(format!("ngrok_test_home_{}", uuid::Uuid::new_v4()));
+            let temp_config = temp_home.join(".config");
+            let _ = fs::create_dir_all(&temp_config);
+            unsafe {
+                std::env::set_var("HOME", &temp_home);
+                std::env::set_var("XDG_CONFIG_HOME", &temp_config);
+            }
+        });
+    }
+
+    #[test]
+    fn test_ngrok_manager_initial_state() {
+        let manager = NgrokManager::new();
+        assert_eq!(manager.status(), "stopped");
+        assert_eq!(manager.public_endpoint(), "");
+        assert!(!manager.is_running());
+    }
+
+    #[test]
+    fn test_has_auth_token() {
+        setup();
+        
+        let manager = NgrokManager::new();
+        
+        // Initially, should have no auth token
+        assert!(!manager.has_auth_token());
+
+        // Create a fake config directory and write a file containing 'authtoken: abc'
+        let fake_home = util::home();
+        let config_dir = fake_home.join(".config").join("ngrok");
+        fs::create_dir_all(&config_dir).unwrap();
+        
+        let config_file = config_dir.join("ngrok.yml");
+        fs::write(&config_file, "authtoken: test_token_value_123\nversion: \"3\"\n").unwrap();
+
+        // Now, it should detect the auth token
+        assert!(manager.has_auth_token());
+
+        // Clean up
+        let _ = fs::remove_file(config_file);
+    }
+}
+

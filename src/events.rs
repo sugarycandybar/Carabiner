@@ -72,3 +72,105 @@ impl EventEmitter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    #[test]
+    fn test_connect_and_emit() {
+        let emitter = EventEmitter::default();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        
+        let received_clone = received.clone();
+        let handler_id = emitter.connect("status-changed", move |event| {
+            if let ManagerEvent::StatusChanged(status) = event {
+                received_clone.lock().unwrap().push(status);
+            }
+        });
+
+        assert_eq!(handler_id, 1);
+
+        emitter.emit("status-changed", ManagerEvent::StatusChanged("Running".to_string()));
+        emitter.emit("status-changed", ManagerEvent::StatusChanged("Stopped".to_string()));
+        // Emit unrelated event
+        emitter.emit("other-event", ManagerEvent::StatusChanged("Ignored".to_string()));
+
+        let results = received.lock().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], "Running");
+        assert_eq!(results[1], "Stopped");
+    }
+
+    #[test]
+    fn test_disconnect() {
+        let emitter = EventEmitter::default();
+        let counter = Arc::new(Mutex::new(0));
+
+        let counter_clone = counter.clone();
+        let id = emitter.connect("test", move |_| {
+            *counter_clone.lock().unwrap() += 1;
+        });
+
+        emitter.emit("test", ManagerEvent::OutputReceived("hello".to_string()));
+        assert_eq!(*counter.lock().unwrap(), 1);
+
+        // Disconnect
+        assert!(emitter.disconnect(id));
+        // Disconnecting again should return false
+        assert!(!emitter.disconnect(id));
+
+        emitter.emit("test", ManagerEvent::OutputReceived("world".to_string()));
+        // Counter should still be 1
+        assert_eq!(*counter.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_multiple_listeners() {
+        let emitter = EventEmitter::default();
+        let log = Arc::new(Mutex::new(Vec::new()));
+
+        let log1 = log.clone();
+        emitter.connect("event", move |_| {
+            log1.lock().unwrap().push(1);
+        });
+
+        let log2 = log.clone();
+        emitter.connect("event", move |_| {
+            log2.lock().unwrap().push(2);
+        });
+
+        emitter.emit("event", ManagerEvent::OutputReceived("ping".to_string()));
+
+        let results = log.lock().unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.contains(&1));
+        assert!(results.contains(&2));
+    }
+
+    #[test]
+    fn test_thread_safety() {
+        let emitter = Arc::new(EventEmitter::default());
+        let counter = Arc::new(Mutex::new(0));
+
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let emitter_clone = emitter.clone();
+            let counter_clone = counter.clone();
+            handles.push(thread::spawn(move || {
+                let id = emitter_clone.connect("thread-event", move |_| {
+                    *counter_clone.lock().unwrap() += 1;
+                });
+                emitter_clone.emit("thread-event", ManagerEvent::OutputReceived("ping".to_string()));
+                emitter_clone.disconnect(id);
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+}
+
