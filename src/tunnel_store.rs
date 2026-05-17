@@ -175,3 +175,64 @@ pub fn managers_snapshot() -> Vec<ManagerHandle> {
 pub fn manager_ptr<T>(arc: &Arc<T>) -> usize {
     Arc::as_ptr(arc) as usize
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    fn setup() {
+        INIT.call_once(|| {
+            let temp_dir = std::env::temp_dir().join(format!("carabiner_test_{}", uuid::Uuid::new_v4()));
+            unsafe {
+                std::env::set_var("CARABINER_DATA_DIR", &temp_dir);
+            }
+            // Ensure DATA_DIR is initialized now with the custom path
+            let _ = &*crate::constants::DATA_DIR;
+        });
+    }
+
+    #[test]
+    fn test_add_load_remove_tunnel() {
+        setup();
+        
+        let provider = "Ngrok";
+        let protocol = "TCP";
+        let port = 8080;
+        let label = "My Test Tunnel";
+
+        let id = add_tunnel(provider, protocol, port, label);
+        assert!(!id.is_empty());
+
+        let tunnels = load_tunnels();
+        assert_eq!(tunnels.len(), 1);
+        assert_eq!(tunnels[0].id, id);
+        assert_eq!(tunnels[0].provider, provider);
+        assert_eq!(tunnels[0].protocol, protocol);
+        assert_eq!(tunnels[0].port, port);
+        assert_eq!(tunnels[0].label, label);
+
+        // Test update url
+        update_tunnel_url(&id, "tcp://ngrok.com:12345");
+        let tunnels = load_tunnels();
+        assert_eq!(tunnels[0].public_url, "tcp://ngrok.com:12345");
+
+        // Test update label
+        update_tunnel_label(&id, "Updated Label");
+        let tunnels = load_tunnels();
+        assert_eq!(tunnels[0].label, "Updated Label");
+
+        // Test update autostart
+        update_tunnel_autostart(&id, true);
+        let tunnels = load_tunnels();
+        assert!(tunnels[0].autostart);
+
+        // Clean up / remove
+        remove_tunnel(&id);
+        let tunnels = load_tunnels();
+        assert!(tunnels.is_empty());
+    }
+}
+

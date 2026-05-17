@@ -106,3 +106,44 @@ pub fn config_home() -> Option<PathBuf> {
 pub fn home() -> PathBuf {
     home_dir()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_name() {
+        let name = platform_name();
+        assert!(!name.is_empty());
+        #[cfg(target_os = "windows")]
+        assert_eq!(name, "windows");
+        #[cfg(target_os = "macos")]
+        assert_eq!(name, "darwin");
+        #[cfg(target_os = "linux")]
+        assert_eq!(name, "linux");
+    }
+
+    #[test]
+    fn test_playit_platform_name() {
+        let name = playit_platform_name();
+        assert!(!name.is_empty());
+        #[cfg(target_os = "windows")]
+        assert_eq!(name, "windows");
+        #[cfg(target_os = "macos")]
+        assert_eq!(name, "macos");
+        #[cfg(target_os = "linux")]
+        assert_eq!(name, "linux");
+    }
+
+    #[test]
+    fn test_machine_name() {
+        let name = machine_name();
+        assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn test_user_agent() {
+        assert_eq!(user_agent(), "Carabiner/1.0");
+    }
+}
+

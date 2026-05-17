@@ -59,3 +59,11 @@ install_data('data/icons/hicolor/symbolic/apps/io.github.sugarycandybar.Carabine
   install_dir: get_option('datadir') / 'icons/hicolor/symbolic/apps'
 )
 
+test(
+  'cargo-test',
+  find_program('cargo'),
+  args: ['test', '--manifest-path', meson.project_source_root() / 'Cargo.toml'],
+  env: cargo_env
+)
+
+

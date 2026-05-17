@@ -80,3 +80,34 @@ pub fn save_settings(settings: &Settings) {
         let _ = fs::write(path, format!("{text}\n"));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_settings() {
+        let settings = Settings { values: default_map() };
+        assert_eq!(settings.get_string("playit_token"), "");
+        assert_eq!(settings.get_string("ngrok_token"), "");
+        assert_eq!(settings.get_bool("run_in_background"), false);
+        assert_eq!(settings.get_bool("start_on_login"), false);
+        assert_eq!(settings.get_bool("playit_agent_autostart"), false);
+    }
+
+    #[test]
+    fn test_getters_and_setters() {
+        let mut settings = Settings { values: default_map() };
+        
+        settings.set_string("playit_token", "test-token-123");
+        assert_eq!(settings.get_string("playit_token"), "test-token-123");
+
+        settings.set_bool("run_in_background", true);
+        assert_eq!(settings.get_bool("run_in_background"), true);
+
+        // Test fallback for missing or mismatching keys
+        assert_eq!(settings.get_string("non_existent_key"), "");
+        assert_eq!(settings.get_bool("non_existent_key"), false);
+    }
+}
+
