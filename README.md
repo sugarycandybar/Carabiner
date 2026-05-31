@@ -9,6 +9,10 @@
   <img src="https://img.shields.io/badge/version-1.0.0-3584e4" alt="Version">
 </p>
 
+## Description
+
+Carabiner is an easy-to-use utility for sharing HTTP, UDP, or TCP services through Ngrok, Playit, and Cloudflare tunnels.
+
 ## Features
 
 - Ngrok, Playit, and Cloudflare tunnels
