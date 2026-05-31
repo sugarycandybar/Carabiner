@@ -41,6 +41,14 @@
   <url type="bugtracker">https://github.com/sugarycandybar/Carabiner/issues</url>
   <url type="vcs-browser">https://github.com/sugarycandybar/Carabiner</url>
   <translation type="gettext">carabiner</translation>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/screenshots/TunnelsManager.png</image>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/screenshots/PlayitTunnelMaker.png</image>
+    </screenshot>
+  </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="1.0.0" date="2026-05-31">
