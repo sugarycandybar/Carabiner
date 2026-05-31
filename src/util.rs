@@ -60,6 +60,24 @@ pub fn machine_name() -> String {
     env::consts::ARCH.to_lowercase()
 }
 
+pub fn hostname() -> String {
+    #[cfg(unix)]
+    {
+        let mut buf = [0u8; 256];
+        match unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) } {
+            0 => {
+                let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+                String::from_utf8_lossy(&buf[..len]).to_string()
+            }
+            _ => "localhost".to_string(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::var("COMPUTERNAME").unwrap_or_else(|_| "localhost".to_string())
+    }
+}
+
 pub fn command_no_window(command: &mut Command) {
     #[cfg(target_os = "windows")]
     {
@@ -232,6 +250,13 @@ mod tests {
     fn test_machine_name() {
         let name = machine_name();
         assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn test_hostname() {
+        let name = hostname();
+        assert!(!name.is_empty());
+        assert_ne!(name, "localhost");
     }
 
     #[test]

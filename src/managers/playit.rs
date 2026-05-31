@@ -296,10 +296,7 @@ impl PlayitManager {
             web_base: "https://playit.gg".to_string(),
             link_worker_url: "https://playit.auto-mcs.com/link".to_string(),
             setup_url: "https://playit.gg/account/setup/wizard/new-account/third-party/third-party-code?partner=carabiner".to_string(),
-            agent_name: format!(
-                "carabiner ({})",
-                std::env::var("HOSTNAME").unwrap_or_else(|_| "localhost".to_string())
-            ),
+            agent_name: format!("carabiner ({})", util::hostname()),
             max_tunnels: 4,
         }
     }
@@ -625,7 +622,7 @@ impl PlayitManager {
         &self,
         progress: Option<Box<dyn Fn(u64, u64) + Send + 'static>>,
     ) -> (bool, String) {
-        let release_url = "https://api.github.com/repos/playit-cloud/playit-agent/releases/latest";
+        let release_url = "https://api.github.com/repos/playit-cloud/playit-agent/releases/tags/v0.17.1";
         let response = self
             .client
             .get(release_url)
