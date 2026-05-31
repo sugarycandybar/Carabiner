@@ -974,7 +974,12 @@ struct TunnelRowRefs {
 
 impl TunnelRowRefs {
     fn update_status_ui(&self, status: &str) {
-        let is_busy = matches!(status, "starting" | "creating" | "stopping");
+        let is_playit = self.config.borrow().provider == "Playit";
+        let is_busy = if is_playit {
+            matches!(status, "creating" | "stopping")
+        } else {
+            matches!(status, "starting" | "creating" | "stopping")
+        };
         if let Some(switch) = &self.switch {
             switch.set_sensitive(!is_busy);
         }
