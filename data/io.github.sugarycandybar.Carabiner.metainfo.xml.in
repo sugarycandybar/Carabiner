@@ -12,6 +12,7 @@
   <description>
     <p>
       Carabiner is an easy-to-use utility for sharing HTTP, UDP, or TCP services.
+      Share local web servers, game servers, or other network services.
     </p>
     <ul>
       <li>Ngrok, Playit, and Cloudflare tunnels.</li>
