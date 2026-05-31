@@ -57,7 +57,10 @@ cargo_build = custom_target(
 
 test(
   'cargo-test',
-  find_program('cargo'),
-  args: ['test', '--manifest-path', meson.project_source_root() / 'Cargo.toml'],
-  env: cargo_env
+  find_program('sh'),
+  args: ['-c', '''
+    cd "$1" && cargo test
+  ''', '_', meson.project_source_root()],
+  env: cargo_env,
+  timeout: 300
 )
