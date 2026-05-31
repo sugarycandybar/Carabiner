@@ -1,57 +1,28 @@
-# Carabiner
+<p align="center">
+  <img src="data/icons/hicolor/scalable/apps/io.github.sugarycandybar.Carabiner.svg" width="128" height="128" alt="Carabiner">
+</p>
+<h1 align="center">Carabiner</h1>
+<p align="center">
+  Create and manage secure network tunnels
+  <br>
+  <img src="https://img.shields.io/badge/license-GPL--3.0-3584e4" alt="License">
+  <img src="https://img.shields.io/badge/version-1.0.0-3584e4" alt="Version">
+</p>
 
-Carabiner is a desktop application designed to simplify the creation and management of secure network tunnels on Linux. 
+## Features
 
-It provides a clean, native-style interface for multiple tunnel providers, removing the need for complex CLI configurations.
+- Ngrok, Playit, and Cloudflare tunnels
+- Simple setup wizards for creating new tunnels
+- Live monitoring of tunnel status and details
+- Background service support for persistent tunnels
 
-## Why Carabiner?
-
-- Easy to use: view and configure your network tunnels without complex CLI tools.
-- Integrated support: built-in support for Ngrok and Playit.
-- Live monitoring: watch tunnel status and logs in real time.
-- All in the app: setup wizards, management, and monitoring in one place.
-
-## Run Carabiner
+## Install
 
 [![Download on Flathub](https://flathub.org/assets/badges/flathub-badge-en.png)](https://flathub.org/en/apps/io.github.sugarycandybar.Carabiner)
 
-<details>
-<summary>Run from source (Rust)</summary>
+## Development
 
-### Linux
-
-1. Install GTK4/libadwaita system packages:
-
-```bash
-# Fedora
-sudo dnf install gtk4-devel libadwaita-devel
-
-# Ubuntu/Debian
-sudo apt install libgtk-4-dev libadwaita-1-dev
-```
-
-2. Run Carabiner:
-
-```bash
-cargo run
-```
-
-### Building with Meson
-
-```bash
-meson setup build
-meson compile -C build
-meson install -C build
-```
-
-### Building the Flatpak
-
-```bash
-flatpak-builder --user --install --force-clean build-dir io.github.sugarycandybar.Carabiner.json
-flatpak run io.github.sugarycandybar.Carabiner
-```
-
-</details>
+You can clone this project and run it using [GNOME Builder](https://apps.gnome.org/Builder/).
 
 ## License
 
