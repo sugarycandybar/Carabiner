@@ -11,19 +11,16 @@
   <update_contact>139514123+sugarycandybar@users.noreply.github.com</update_contact>
   <description>
     <p>
-      Carabiner is a desktop application designed to simplify the creation and management
-      of secure network tunnels on Linux. It provides a clean, native-style interface
-      for multiple tunnel providers, removing the need for complex CLI configurations.
+      Carabiner is an easy-to-use utility for sharing HTTP, UDP, or TCP services.
     </p>
     <ul>
-      <li>Integrated support for Ngrok and Playit</li>
+      <li>Ngrok, Playit, and Cloudflare tunnels.</li>
       <li>Simple setup wizards for creating new tunnels</li>
-      <li>Live monitoring of tunnel status and logs</li>
-      <li>Native GTK4 and Libadwaita interface for a seamless desktop experience</li>
+      <li>Live monitoring of tunnel status and details</li>
+      <li>Background service support for persistent tunnels</li>
     </ul>
   </description>
   <categories>
-    <category>Utility</category>
     <category>Network</category>
   </categories>
   <keywords>
@@ -45,12 +42,7 @@
   <translation type="gettext">carabiner</translation>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="1.1.0" date="2026-05-04">
-      <description>
-        <p>Port to Rust.</p>
-      </description>
-    </release>
-    <release version="1.0.0" date="2026-05-01">
+    <release version="1.0.0" date="2026-05-31">
       <description>
         <p>Initial release</p>
       </description>

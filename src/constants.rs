@@ -3,7 +3,7 @@ use std::{env, fs, path::PathBuf};
 
 pub const APP_ID: &str = "io.github.sugarycandybar.Carabiner";
 pub const APP_NAME: &str = "Carabiner";
-pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APP_VERSION: &str = crate::config::VERSION;
 pub const APP_WEBSITE: &str = "https://github.com/sugarycandybar/Carabiner";
 
 pub static DATA_DIR: Lazy<PathBuf> = Lazy::new(|| {
