@@ -22,7 +22,11 @@ pub fn run() -> glib::ExitCode {
         .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
         .build();
 
-    app.set_accels_for_action("win.quit", &["<Control>q"]);
+    app.set_accels_for_action("win.preferences", &["<Control>comma"]);
+    app.set_accels_for_action("win.show-shortcuts", &["<Control>question"]);
+    app.set_accels_for_action("win.quit", &["<Control>q", "<Control>w"]);
+    app.set_accels_for_action("win.menu", &["F10"]);
+    app.set_accels_for_action("win.add-tunnel", &["<Control>n"]);
 
     let state = Rc::new(AppState::default());
 

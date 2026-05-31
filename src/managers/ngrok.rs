@@ -129,7 +129,10 @@ impl NgrokManager {
         );
     }
 
-    pub fn install_latest_binary(&self) -> (bool, String) {
+    pub fn install_latest_binary(
+        &self,
+        progress: Option<Box<dyn Fn(u64, u64) + Send + 'static>>,
+    ) -> (bool, String) {
         let sys_name = util::platform_name();
         let machine = util::machine_name();
         let mut is_zip = false;
@@ -154,35 +157,30 @@ impl NgrokManager {
             return (false, err.to_string());
         }
 
-        let result = reqwest::blocking::Client::new()
-            .get(url)
-            .header(reqwest::header::USER_AGENT, util::user_agent())
-            .send()
-            .and_then(|response| response.error_for_status())
-            .and_then(|response| response.bytes());
-
-        let Ok(payload) = result else {
-            return (
-                false,
-                result.err().map(|e| e.to_string()).unwrap_or_default(),
-            );
+        let payload = match util::download_with_progress(&url, 30, |downloaded, total| {
+            if let Some(ref cb) = progress {
+                cb(downloaded, total);
+            }
+        }) {
+            Ok(data) => data,
+            Err(e) => return (false, e),
         };
 
         if is_zip {
             let reader = Cursor::new(payload);
             let mut archive = match zip::ZipArchive::new(reader) {
                 Ok(archive) => archive,
-                Err(err) => return (false, err.to_string()),
+                Err(err) => return (false, format!("Failed to extract archive: {err}")),
             };
             if let Err(err) = archive.extract(&self.directory) {
-                return (false, err.to_string());
+                return (false, format!("Failed to extract archive: {err}"));
             }
         } else {
             let reader = Cursor::new(payload);
             let decoder = flate2::read::GzDecoder::new(reader);
             let mut archive = tar::Archive::new(decoder);
             if let Err(err) = archive.unpack(&self.directory) {
-                return (false, err.to_string());
+                return (false, format!("Failed to extract archive: {err}"));
             }
         }
 

@@ -87,19 +87,29 @@ impl CarabinerWindow {
 
         let add_btn = gtk::Button::builder()
             .icon_name("list-add-symbolic")
+            .tooltip_text("Add Tunnel")
             .build();
         header.pack_start(&add_btn);
 
         let menu_btn = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
+            .tooltip_text("Main Menu")
             .build();
         header.pack_end(&menu_btn);
 
         let menu = gio::Menu::new();
         menu.append(Some("Preferences"), Some("win.preferences"));
+        menu.append(Some("Keyboard Shortcuts"), Some("win.show-shortcuts"));
         menu.append(Some("About Carabiner"), Some("win.about"));
-        menu.append(Some("Quit"), Some("win.quit"));
         menu_btn.set_menu_model(Some(&menu));
+
+        let menu_action = gio::SimpleAction::new("menu", None);
+        {
+            let menu_btn = menu_btn.clone();
+            menu_action.connect_activate(move |_, _| {
+                menu_btn.popup();
+            });
+        }
 
         toolbar_view.add_top_bar(&header);
 
@@ -124,12 +134,35 @@ impl CarabinerWindow {
         }
         this.window.add_action(&preferences_action);
 
+        let add_tunnel_action = gio::SimpleAction::new("add-tunnel", None);
+        {
+            let this = this.clone();
+            add_tunnel_action.connect_activate(move |_, _| this.show_setup_dialog());
+        }
+        this.window.add_action(&add_tunnel_action);
+
+        this.window.add_action(&menu_action);
+
         let about_action = gio::SimpleAction::new("about", None);
         {
             let this = this.clone();
             about_action.connect_activate(move |_, _| this.show_about());
         }
         this.window.add_action(&about_action);
+
+        let show_shortcuts_action = gio::SimpleAction::new("show-shortcuts", None);
+        {
+            let window = this.window.clone();
+            show_shortcuts_action.connect_activate(move |_, _| {
+                let builder = gtk::Builder::from_resource(
+                    "/io/github/sugarycandybar/Carabiner/shortcuts-dialog.ui",
+                );
+                let shortcuts: adw::ShortcutsDialog =
+                    builder.object("shortcuts_dialog").expect("shortcuts_dialog not found");
+                shortcuts.present(Some(&window));
+            });
+        }
+        this.window.add_action(&show_shortcuts_action);
 
         let quit_action = gio::SimpleAction::new("quit", None);
         {
@@ -483,9 +516,19 @@ impl PlayitAgentRow {
         row.set_title("Playit Agent");
         row.set_subtitle("Stopped");
 
+        let suffix_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        suffix_box.set_valign(gtk::Align::Center);
+
+        let spinner = gtk::Spinner::new();
+        spinner.set_valign(gtk::Align::Center);
+        spinner.set_size_request(16, 16);
+        spinner.set_visible(false);
+        suffix_box.append(&spinner);
+
         let switch = gtk::Switch::new();
         switch.set_valign(gtk::Align::Center);
-        row.add_suffix(&switch);
+        suffix_box.append(&switch);
+        row.add_suffix(&suffix_box);
 
         // Inner autostart row moved into the expander
         let autostart_row = adw::ActionRow::new();
@@ -498,12 +541,13 @@ impl PlayitAgentRow {
         row.add_row(&autostart_row);
 
         let error_open = Rc::new(RefCell::new(false));
-        Self::update_status(&row, &switch, &error_open, &manager.status());
+        Self::update_status(&row, &spinner, &switch, &error_open, &manager.status());
 
         let (start_tx, start_rx) = unbounded::<(bool, String)>();
         {
             let row = row.clone();
             let switch = switch.clone();
+            let spinner = spinner.clone();
             let error_open = error_open.clone();
             drain_receiver(start_rx, move |(ok, msg)| {
                 if !ok {
@@ -512,7 +556,7 @@ impl PlayitAgentRow {
                         show_error_for_widget(&row, "Agent Error", &msg);
                         *error_open.borrow_mut() = false;
                     }
-                    Self::update_status(&row, &switch, &error_open, "stopped");
+                    Self::update_status(&row, &spinner, &switch, &error_open, "stopped");
                 }
             });
         }
@@ -560,11 +604,12 @@ impl PlayitAgentRow {
         {
             let row = row.clone();
             let switch = switch.clone();
+            let spinner = spinner.clone();
             let error_open = error_open.clone();
             let toast_overlay = toast_overlay.clone();
             drain_receiver(rx, move |event| {
                 if let ManagerEvent::StatusChanged(status) = event {
-                    Self::update_status(&row, &switch, &error_open, &status);
+                    Self::update_status(&row, &spinner, &switch, &error_open, &status);
                     if let Some(msg) = status.strip_prefix("error:") {
                         if !*error_open.borrow() {
                             *error_open.borrow_mut() = true;
@@ -582,12 +627,20 @@ impl PlayitAgentRow {
 
     fn update_status(
         row: &adw::ExpanderRow,
+        spinner: &gtk::Spinner,
         switch: &gtk::Switch,
         _error_open: &Rc<RefCell<bool>>,
         status: &str,
     ) {
         let is_busy = matches!(status, "starting" | "creating" | "stopping");
         switch.set_sensitive(!is_busy);
+        if is_busy {
+            spinner.set_visible(true);
+            spinner.start();
+        } else {
+            spinner.set_visible(false);
+            spinner.stop();
+        }
         if status == "running" {
             row.set_subtitle("Running");
             set_switch_active(switch, true);
@@ -638,6 +691,12 @@ impl TunnelRow {
         let suffix_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         suffix_box.set_valign(gtk::Align::Center);
         row.add_suffix(&suffix_box);
+
+        let spinner = gtk::Spinner::new();
+        spinner.set_valign(gtk::Align::Center);
+        spinner.set_size_request(16, 16);
+        spinner.set_visible(false);
+        suffix_box.append(&spinner);
 
         let main_copy_btn = gtk::Button::builder()
             .icon_name("edit-copy-symbolic")
@@ -765,6 +824,7 @@ impl TunnelRow {
                 config: config.clone(),
                 public_url: public_url.clone(),
                 main_copy_btn: main_copy_btn.clone(),
+                spinner: spinner.clone(),
                 switch: switch.clone(),
                 info_url_row: info_url_row.clone(),
                 is_cycling_hostname: is_cycling_hostname.clone(),
@@ -779,6 +839,7 @@ impl TunnelRow {
             config: config.clone(),
             public_url: public_url.clone(),
             main_copy_btn: main_copy_btn.clone(),
+            spinner: spinner.clone(),
             switch: switch.clone(),
             info_url_row: info_url_row.clone(),
             is_cycling_hostname: is_cycling_hostname.clone(),
@@ -830,6 +891,7 @@ impl TunnelRow {
                 config: config.clone(),
                 public_url: public_url.clone(),
                 main_copy_btn: main_copy_btn.clone(),
+                spinner: spinner.clone(),
                 switch: switch.clone(),
                 info_url_row: info_url_row.clone(),
                 is_cycling_hostname: is_cycling_hostname.clone(),
@@ -844,6 +906,7 @@ impl TunnelRow {
                 config: config.clone(),
                 public_url: public_url.clone(),
                 main_copy_btn: main_copy_btn.clone(),
+                spinner: spinner.clone(),
                 switch,
                 info_url_row,
                 is_cycling_hostname,
@@ -899,6 +962,7 @@ struct TunnelRowRefs {
     manager: ManagerHandle,
     config: Rc<RefCell<TunnelConfig>>,
     public_url: Rc<RefCell<String>>,
+    spinner: gtk::Spinner,
     main_copy_btn: gtk::Button,
     switch: Option<gtk::Switch>,
     info_url_row: Rc<RefCell<Option<adw::ActionRow>>>,
@@ -911,6 +975,12 @@ impl TunnelRowRefs {
         let is_busy = matches!(status, "starting" | "creating" | "stopping");
         if let Some(switch) = &self.switch {
             switch.set_sensitive(!is_busy);
+        }
+        self.spinner.set_visible(is_busy);
+        if is_busy {
+            self.spinner.start();
+        } else {
+            self.spinner.stop();
         }
 
         if self.config.borrow().provider == "Playit" {
@@ -1208,24 +1278,23 @@ impl SetupProviderPage {
         group.set_title("Select Provider");
         original_page.add(&group);
 
-        for provider in ["Cloudflare", "Playit", "Ngrok"] {
+        let subtitles = [
+            ("Cloudflare", "Free HTTP · No account"),
+            ("Ngrok", "Free UDP · Paid TCP"),
+            ("Playit", "Free UDP · Free TCP"),
+        ];
+
+        for (provider, subtitle) in subtitles {
             let row = adw::ActionRow::new();
             row.set_title(provider);
+            row.set_subtitle(subtitle);
             row.set_activatable(true);
             let icon = gtk::Image::from_icon_name("go-next-symbolic");
             row.add_suffix(&icon);
             let nav_view = nav_view.clone();
-            let toolbar_view = toolbar_view.clone();
-            let original_page = original_page.clone();
             let on_saved = on_saved.clone();
             row.connect_activated(move |_| {
-                provider_selected(
-                    provider,
-                    &nav_view,
-                    &toolbar_view,
-                    &original_page,
-                    on_saved.clone(),
-                );
+                provider_selected(provider, &nav_view, on_saved.clone());
             });
             group.add(&row);
         }
@@ -1237,8 +1306,6 @@ impl SetupProviderPage {
 fn provider_selected(
     provider: &str,
     nav_view: &adw::NavigationView,
-    toolbar_view: &adw::ToolbarView,
-    original_page: &adw::PreferencesPage,
     on_saved: Rc<dyn Fn(Option<String>)>,
 ) {
     let manager = get_provider_manager(provider);
@@ -1252,7 +1319,7 @@ fn provider_selected(
         })
     };
 
-    let push_auth_if_needed = {
+    let push_auth_if_needed = Rc::new({
         let nav_view = nav_view.clone();
         let manager = manager.clone();
         let push_details = push_details.clone();
@@ -1274,49 +1341,92 @@ fn provider_selected(
                 push_details();
             }
         }
-    };
+    });
 
     if !manager.is_installed() {
-        toolbar_view.set_content(Some(&spinner_view(provider)));
-        let (tx, rx) = unbounded();
-        let manager = manager.clone();
-        thread::spawn(move || {
-            let result = manager.install_latest_binary();
-            thread::sleep(Duration::from_millis(500));
-            let _ = tx.send(result);
-        });
-        let toolbar_view = toolbar_view.clone();
-        let original_page = original_page.clone();
-        let provider = provider.to_string();
-        drain_receiver(rx, move |(ok, msg)| {
-            toolbar_view.set_content(Some(&original_page));
-            if ok {
-                push_auth_if_needed();
-            } else {
-                show_error_for_widget(&toolbar_view, "Download Failed", &msg);
-            }
-            let _ = &provider;
-        });
+        let page = setup_download_page(provider, nav_view, manager, push_auth_if_needed);
+        nav_view.push(&page);
     } else {
         push_auth_if_needed();
     }
 }
 
-fn spinner_view(provider: &str) -> gtk::Box {
+fn setup_download_page(
+    provider: &str,
+    nav_view: &adw::NavigationView,
+    manager: ManagerHandle,
+    on_complete: Rc<dyn Fn()>,
+) -> adw::NavigationPage {
+    let toolbar = adw::ToolbarView::new();
+    let page = adw::NavigationPage::new(&toolbar, "Download Binary");
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+
     let status = adw::StatusPage::new();
-    status.set_title("Downloading Binary");
+    status.set_title(&format!("Downloading {provider}"));
     status.set_description(Some(&format!(
-        "Please wait while {provider} is being downloaded and installed..."
+        "Please wait while {provider} is being downloaded..."
     )));
-    let spinner = gtk::Spinner::new();
-    spinner.start();
-    spinner.set_size_request(48, 48);
-    spinner.set_halign(gtk::Align::Center);
+
+    let progress_bar = gtk::ProgressBar::new();
+    progress_bar.set_show_text(true);
+    progress_bar.set_hexpand(true);
+    progress_bar.set_valign(gtk::Align::Center);
+    progress_bar.set_margin_start(32);
+    progress_bar.set_margin_end(32);
+    progress_bar.set_margin_bottom(16);
+
     let box_ = gtk::Box::new(gtk::Orientation::Vertical, 16);
     box_.append(&status);
-    box_.append(&spinner);
+    box_.append(&progress_bar);
     box_.set_valign(gtk::Align::Center);
-    box_
+    toolbar.set_content(Some(&box_));
+
+    let (tx, rx) = unbounded();
+    let (progress_tx, progress_rx) = unbounded::<f64>();
+
+    let manager_for_thread = manager.clone();
+    thread::spawn(move || {
+        let result = manager_for_thread.install_latest_binary(Some(Box::new(
+            move |downloaded: u64, total: u64| {
+                let frac = if total > 0 {
+                    downloaded as f64 / total as f64
+                } else {
+                    -1.0
+                };
+                let _ = progress_tx.send(frac);
+            },
+        )));
+        let _ = tx.send(result);
+    });
+
+    glib::timeout_add_local(Duration::from_millis(100), {
+        let progress_bar = progress_bar.clone();
+        move || {
+            while let Ok(frac) = progress_rx.try_recv() {
+                if frac < 0.0 {
+                    progress_bar.pulse();
+                    progress_bar.set_text(None);
+                } else {
+                    progress_bar.set_fraction(frac.min(1.0));
+                    progress_bar
+                        .set_text(Some(&format!("{:.0}%", (frac * 100.0).min(100.0))));
+                }
+            }
+            glib::ControlFlow::Continue
+        }
+    });
+
+    let nav_view = nav_view.clone();
+    drain_receiver(rx, move |(ok, msg)| {
+        nav_view.pop();
+        if ok {
+            on_complete();
+        } else {
+            show_error_for_widget(&nav_view, "Download Failed", &msg);
+        }
+    });
+
+    page
 }
 
 fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> adw::NavigationPage {
@@ -1352,10 +1462,34 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
     let port_row = adw::ActionRow::new();
     port_row.set_title("Local Port");
     let port_spin = gtk::SpinButton::with_range(1.0, 65535.0, 1.0);
-    port_spin.set_value(25565.0);
+    let initial_protocol = protocol_model
+        .string(protocol_row.selected())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "TCP".to_string());
+    let initial_port = match initial_protocol.as_str() {
+        "HTTP" => 8080.0,
+        "UDP" => 19132.0,
+        _ => 25565.0,
+    };
+    port_spin.set_value(initial_port);
     port_spin.set_valign(gtk::Align::Center);
     port_row.add_suffix(&port_spin);
     group.add(&port_row);
+
+    let port_spin_clone = port_spin.clone();
+    protocol_row.connect_selected_notify(move |row| {
+        let selected = row.selected();
+        if let Some(model) = row.model().and_then(|m| m.downcast::<gtk::StringList>().ok()) {
+            if let Some(protocol) = model.string(selected) {
+                match protocol.as_str() {
+                    "TCP" => port_spin_clone.set_value(25565.0),
+                    "HTTP" => port_spin_clone.set_value(8080.0),
+                    "UDP" => port_spin_clone.set_value(19132.0),
+                    _ => {}
+                }
+            }
+        }
+    });
 
     let btn_group = adw::PreferencesGroup::new();
     prefs.add(&btn_group);

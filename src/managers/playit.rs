@@ -621,7 +621,10 @@ impl PlayitManager {
         (0, 17, 1)
     }
 
-    pub fn install_latest_binary(&self) -> (bool, String) {
+    pub fn install_latest_binary(
+        &self,
+        progress: Option<Box<dyn Fn(u64, u64) + Send + 'static>>,
+    ) -> (bool, String) {
         let release_url = "https://api.github.com/repos/playit-cloud/playit-agent/releases/latest";
         let response = self
             .client
@@ -636,10 +639,18 @@ impl PlayitManager {
         let Ok(data) = response else {
             return (
                 false,
-                response
-                    .err()
-                    .map(|err| err.to_string())
-                    .unwrap_or_default(),
+                response.err().map_or_else(
+                    || "Failed to fetch release info".to_string(),
+                    |err| {
+                        let msg = err.to_string();
+                        if msg.contains("timed out") {
+                            "Release info request timed out. Check your internet connection."
+                                .to_string()
+                        } else {
+                            format!("Failed to fetch release info: {msg}")
+                        }
+                    },
+                ),
             );
         };
 
@@ -671,23 +682,17 @@ impl PlayitManager {
             }
         }
 
-        let result = self
-            .client
-            .get(download_url)
-            .header(reqwest::header::USER_AGENT, util::user_agent())
-            .timeout(Duration::from_secs(120))
-            .send()
-            .and_then(|response| response.error_for_status())
-            .and_then(|response| response.bytes());
-        let Ok(payload) = result else {
-            return (
-                false,
-                result.err().map(|err| err.to_string()).unwrap_or_default(),
-            );
+        let payload = match util::download_with_progress(&download_url, 120, |downloaded, total| {
+            if let Some(ref cb) = progress {
+                cb(downloaded, total);
+            }
+        }) {
+            Ok(data) => data,
+            Err(e) => return (false, e),
         };
 
         if let Err(err) = fs::File::create(&target).and_then(|mut file| file.write_all(&payload)) {
-            return (false, err.to_string());
+            return (false, format!("Failed to write binary: {err}"));
         }
 
         #[cfg(unix)]
@@ -1121,7 +1126,10 @@ impl PlayitManager {
         label: &str,
     ) -> Result<Option<PlayitTunnel>, String> {
         if !(1024..65535).contains(&port) {
-            port = 25565;
+            port = match protocol {
+                "udp" => 19132,
+                _ => 25565,
+            };
         }
 
         if !self.check_tunnel_limit() {
@@ -1326,7 +1334,7 @@ impl PlayitManager {
 
         let mut binary = self.resolve_binary();
         if binary.is_none() && auto_install {
-            let (ok, msg) = self.install_latest_binary();
+            let (ok, msg) = self.install_latest_binary(None);
             if !ok {
                 return (false, format!("playit install failed: {msg}"));
             }
@@ -1483,7 +1491,7 @@ impl PlayitManager {
     fn ensure_api_ready(&self, secret: &str, auto_install: bool) -> (bool, String) {
         let mut binary = self.resolve_binary();
         if binary.is_none() && auto_install {
-            let (ok, msg) = self.install_latest_binary();
+            let (ok, msg) = self.install_latest_binary(None);
             if !ok {
                 return (false, format!("playit install failed: {msg}"));
             }

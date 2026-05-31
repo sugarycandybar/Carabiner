@@ -52,11 +52,14 @@ impl ManagerHandle {
         }
     }
 
-    pub fn install_latest_binary(&self) -> (bool, String) {
+    pub fn install_latest_binary(
+        &self,
+        progress: Option<Box<dyn Fn(u64, u64) + Send + 'static>>,
+    ) -> (bool, String) {
         match self {
-            Self::Playit(manager) => manager.install_latest_binary(),
-            Self::Cloudflare(manager) => manager.install_latest_binary(),
-            Self::Ngrok(manager) => manager.install_latest_binary(),
+            Self::Playit(manager) => manager.install_latest_binary(progress),
+            Self::Cloudflare(manager) => manager.install_latest_binary(progress),
+            Self::Ngrok(manager) => manager.install_latest_binary(progress),
         }
     }
 

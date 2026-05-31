@@ -1,6 +1,7 @@
 use crate::constants::home_dir;
 use std::{
     env,
+    io::Read,
     path::{Path, PathBuf},
     process::{Child, Command},
     thread,
@@ -97,6 +98,100 @@ pub fn terminate_child(child: &mut Child, timeout: Duration) {
 
 pub fn user_agent() -> &'static str {
     "Carabiner/1.0"
+}
+
+pub fn download_with_progress(
+    url: &str,
+    timeout_secs: u64,
+    progress: impl Fn(u64, u64),
+) -> Result<Vec<u8>, String> {
+    let mut last_error = String::new();
+    let max_retries = 3;
+
+    for attempt in 0..max_retries {
+        if attempt > 0 {
+            thread::sleep(Duration::from_secs(1 << attempt));
+        }
+
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(timeout_secs))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                last_error = friendly_download_error(&e.to_string());
+                continue;
+            }
+        };
+
+        let response = match client
+            .get(url)
+            .header(reqwest::header::USER_AGENT, user_agent())
+            .send()
+            .and_then(|r| r.error_for_status())
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_error = friendly_download_error(&e.to_string());
+                continue;
+            }
+        };
+
+        let total = response.content_length().unwrap_or(0);
+        let mut downloaded: u64 = 0;
+        let mut buf = Vec::with_capacity(total as usize);
+
+        let mut reader = response.take(200 * 1024 * 1024);
+        let mut chunk = [0u8; 16384];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    buf.extend_from_slice(&chunk[..n]);
+                    downloaded += n as u64;
+                    progress(downloaded, total);
+                }
+                Err(e) => {
+                    last_error = friendly_download_error(&e.to_string());
+                    break;
+                }
+            }
+        }
+
+        if last_error.is_empty() {
+            return Ok(buf);
+        }
+    }
+
+    Err(format!(
+        "Download failed after {max_retries} attempts: {last_error}"
+    ))
+}
+
+pub fn friendly_download_error(msg: &str) -> String {
+    if msg.contains("timed out") || msg.contains("timeout") {
+        "Connection timed out. Please check your internet connection and try again.".to_string()
+    } else if msg.contains("404 ") || msg.contains("Not Found") {
+        "Download file not found. The release may have been removed.".to_string()
+    } else if msg.contains("403 ") || msg.contains("Forbidden") {
+        "Access denied. The download server rejected the request.".to_string()
+    } else if msg.contains("connection refused") || msg.contains("Connection refused") {
+        "Could not connect to the download server. It may be temporarily unavailable."
+            .to_string()
+    } else if msg.to_lowercase().contains("dns") || msg.to_lowercase().contains("resolve") {
+        "Could not resolve the download server address. Please check your DNS settings."
+            .to_string()
+    } else if msg.to_lowercase().contains("tls")
+        || msg.to_lowercase().contains("ssl")
+        || msg.to_lowercase().contains("certificate")
+    {
+        "A security error occurred during the download. Your connection may be intercepted."
+            .to_string()
+    } else if msg.contains("cancelled") {
+        "Download was cancelled.".to_string()
+    } else {
+        format!("An unexpected error occurred: {msg}")
+    }
 }
 
 pub fn config_home() -> Option<PathBuf> {

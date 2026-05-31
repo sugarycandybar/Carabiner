@@ -35,8 +35,8 @@ impl CloudflareManager {
                 process: None,
                 status: "stopped".to_string(),
                 public_endpoint: String::new(),
-                port: 25565,
-                protocol: "tcp".to_string(),
+                port: 8080,
+                protocol: "http".to_string(),
             }),
             directory: DATA_DIR.join("cloudflare"),
         }
@@ -128,7 +128,10 @@ impl CloudflareManager {
         );
     }
 
-    pub fn install_latest_binary(&self) -> (bool, String) {
+    pub fn install_latest_binary(
+        &self,
+        progress: Option<Box<dyn Fn(u64, u64) + Send + 'static>>,
+    ) -> (bool, String) {
         let sys_name = util::platform_name();
         let machine = util::machine_name();
 
@@ -158,22 +161,17 @@ impl CloudflareManager {
             }
         }
 
-        let result = reqwest::blocking::Client::new()
-            .get(url)
-            .header(reqwest::header::USER_AGENT, util::user_agent())
-            .send()
-            .and_then(|response| response.error_for_status())
-            .and_then(|response| response.bytes());
-
-        let Ok(payload) = result else {
-            return (
-                false,
-                result.err().map(|e| e.to_string()).unwrap_or_default(),
-            );
+        let payload = match util::download_with_progress(&url, 60, |downloaded, total| {
+            if let Some(ref cb) = progress {
+                cb(downloaded, total);
+            }
+        }) {
+            Ok(data) => data,
+            Err(e) => return (false, e),
         };
 
         if let Err(err) = fs::File::create(&target).and_then(|mut file| file.write_all(&payload)) {
-            return (false, err.to_string());
+            return (false, format!("Failed to write binary: {err}"));
         }
 
         #[cfg(unix)]
