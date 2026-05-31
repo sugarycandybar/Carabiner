@@ -8,6 +8,7 @@ adw = { package = "libadwaita", version = "0.9.1", features = ["v1_9", "gtk_v4_2
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 crossbeam-channel = "0.5"
 flate2 = "1"
+gettext-rs = { version = "0.7", features = ["gettext-system"] }
 gtk = { package = "gtk4", version = "0.11.3", features = ["v4_22"] }
 libc = "0.2"
 once_cell = "1"

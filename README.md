@@ -36,10 +36,18 @@ sudo apt install libgtk-4-dev libadwaita-1-dev
 cargo run
 ```
 
+### Building with Meson
+
+```bash
+meson setup build
+meson compile -C build
+meson install -C build
+```
+
 ### Building the Flatpak
 
 ```bash
-flatpak-builder --user --install --force-clean build-dir packaging/flatpak/io.github.sugarycandybar.Carabiner.yml
+flatpak-builder --user --install --force-clean build-dir io.github.sugarycandybar.Carabiner.json
 flatpak run io.github.sugarycandybar.Carabiner
 ```
 

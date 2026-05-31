@@ -1,0 +1,6 @@
+# List of source files containing translatable strings.
+# Please keep this file sorted alphabetically.
+data/io.github.sugarycandybar.Carabiner.desktop.in
+data/io.github.sugarycandybar.Carabiner.metainfo.xml.in
+data/io.github.sugarycandybar.Carabiner.gschema.xml
+src/window.ui
