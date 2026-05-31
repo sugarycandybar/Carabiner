@@ -2,8 +2,9 @@ use crate::constants::home_dir;
 use sha2::{Digest, Sha256};
 use std::{
     env,
+    fs,
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command},
     thread,
     time::{Duration, Instant},
@@ -254,6 +255,54 @@ pub fn parse_sha256_from_output(output: &str, filename: &str) -> Option<String> 
             .trim()
             .to_string()
     })
+}
+
+pub fn save_binary_hash(bin_path: &Path, data: &[u8]) -> Result<(), String> {
+    let hash: String = Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let hash_path = hash_path(bin_path);
+    fs::write(&hash_path, &hash).map_err(|e| format!("Failed to write hash file: {e}"))
+}
+
+pub fn check_binary_integrity(bin_path: &Path) -> Result<(), String> {
+    let hash_path = hash_path(bin_path);
+
+    if !hash_path.exists() {
+        let data = fs::read(bin_path).map_err(|e| format!("Cannot read binary: {e}"))?;
+        return save_binary_hash(bin_path, &data);
+    }
+
+    let expected = fs::read_to_string(&hash_path)
+        .map_err(|_| "integrity file not found".to_string())?
+        .trim()
+        .to_string();
+    if expected.is_empty() {
+        return Err("integrity file is empty".to_string());
+    }
+    if expected.len() != 64 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("integrity file has invalid format".to_string());
+    }
+    let data = fs::read(bin_path).map_err(|e| format!("Cannot read binary: {e}"))?;
+    let actual: String = Sha256::digest(&data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "Binary hash mismatch (expected {expected}, got {actual})"
+        ))
+    }
+}
+
+fn hash_path(bin_path: &Path) -> PathBuf {
+    let mut p = bin_path.to_path_buf();
+    let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    p.set_file_name(format!("{name}.sha256"));
+    p
 }
 
 #[cfg(unix)]

@@ -14,7 +14,7 @@ use std::{
     fs,
     io::{BufReader, Read, Write},
     net::Ipv4Addr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -501,6 +501,12 @@ impl PlayitManager {
             return false;
         }
 
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.toml_path, fs::Permissions::from_mode(0o600));
+        }
+
         let mut state = self.state.lock().unwrap();
         state.config = HashMap::from([("secret_key".to_string(), key.to_string())]);
         state.secret_key = Some(key.to_string());
@@ -734,6 +740,10 @@ impl PlayitManager {
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o700));
+        }
+
+        if let Err(e) = util::save_binary_hash(&target, &payload) {
+            return (false, e);
         }
 
         (true, target.to_string_lossy().to_string())
@@ -1332,6 +1342,11 @@ impl PlayitManager {
     fn start_agent_service(self: &Arc<Self>, binary: &str) -> bool {
         if self.is_running() {
             return true;
+        }
+
+        if let Err(e) = util::check_binary_integrity(Path::new(binary)) {
+            self.state.lock().unwrap().last_error = format!("Integrity check failed: {e}");
+            return false;
         }
 
         let mut command = Command::new(binary);

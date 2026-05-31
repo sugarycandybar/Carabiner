@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -193,6 +193,10 @@ impl CloudflareManager {
             let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o700));
         }
 
+        if let Err(e) = util::save_binary_hash(&target, &payload) {
+            return (false, e);
+        }
+
         (true, target.to_string_lossy().to_string())
     }
 
@@ -240,6 +244,11 @@ impl CloudflareManager {
         }
         self.set_endpoint("");
         self.set_status("starting");
+
+        if util::check_binary_integrity(Path::new(&binary)).is_err() {
+            self.set_status("error");
+            return false;
+        }
 
         let mut command = Command::new(binary);
         command

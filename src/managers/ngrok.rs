@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::{
     fs,
     io::{BufRead, BufReader, Cursor},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -191,6 +191,17 @@ impl NgrokManager {
             let _ = fs::set_permissions(&bin_path, fs::Permissions::from_mode(0o700));
         }
 
+        if bin_path.exists() {
+            match fs::read(&bin_path) {
+                Ok(data) => {
+                    if let Err(e) = util::save_binary_hash(&bin_path, &data) {
+                        return (false, e);
+                    }
+                }
+                Err(e) => return (false, format!("Failed to read extracted binary: {e}")),
+            }
+        }
+
         (true, bin_path.to_string_lossy().to_string())
     }
 
@@ -270,6 +281,11 @@ impl NgrokManager {
         }
         self.set_endpoint("");
         self.set_status("starting");
+
+        if util::check_binary_integrity(Path::new(&binary)).is_err() {
+            self.set_status("error");
+            return false;
+        }
 
         let mut command = Command::new(binary);
         command
