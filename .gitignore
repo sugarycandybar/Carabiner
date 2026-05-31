@@ -1,2 +1,3 @@
 /target
+build-dir/
 src/config.rs

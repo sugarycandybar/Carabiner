@@ -87,7 +87,9 @@ mod tests {
 
     #[test]
     fn test_default_settings() {
-        let settings = Settings { values: default_map() };
+        let settings = Settings {
+            values: default_map(),
+        };
         assert_eq!(settings.get_string("playit_token"), "");
         assert_eq!(settings.get_string("ngrok_token"), "");
         assert_eq!(settings.get_bool("run_in_background"), false);
@@ -97,8 +99,10 @@ mod tests {
 
     #[test]
     fn test_getters_and_setters() {
-        let mut settings = Settings { values: default_map() };
-        
+        let mut settings = Settings {
+            values: default_map(),
+        };
+
         settings.set_string("playit_token", "test-token-123");
         assert_eq!(settings.get_string("playit_token"), "test-token-123");
 
@@ -110,4 +114,3 @@ mod tests {
         assert_eq!(settings.get_bool("non_existent_key"), false);
     }
 }
-

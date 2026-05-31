@@ -176,11 +176,9 @@ pub fn friendly_download_error(msg: &str) -> String {
     } else if msg.contains("403 ") || msg.contains("Forbidden") {
         "Access denied. The download server rejected the request.".to_string()
     } else if msg.contains("connection refused") || msg.contains("Connection refused") {
-        "Could not connect to the download server. It may be temporarily unavailable."
-            .to_string()
+        "Could not connect to the download server. It may be temporarily unavailable.".to_string()
     } else if msg.to_lowercase().contains("dns") || msg.to_lowercase().contains("resolve") {
-        "Could not resolve the download server address. Please check your DNS settings."
-            .to_string()
+        "Could not resolve the download server address. Please check your DNS settings.".to_string()
     } else if msg.to_lowercase().contains("tls")
         || msg.to_lowercase().contains("ssl")
         || msg.to_lowercase().contains("certificate")
@@ -241,4 +239,3 @@ mod tests {
         assert_eq!(user_agent(), "Carabiner/1.0");
     }
 }
-

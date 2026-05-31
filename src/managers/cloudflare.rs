@@ -309,11 +309,16 @@ mod tests {
 
         // Verify status and endpoint are updated correctly
         assert_eq!(manager.status(), "running");
-        assert_eq!(manager.public_endpoint(), "https://carabiner-test-12345.trycloudflare.com");
+        assert_eq!(
+            manager.public_endpoint(),
+            "https://carabiner-test-12345.trycloudflare.com"
+        );
 
         let recorded_events = events.lock().unwrap();
         assert_eq!(recorded_events.len(), 1);
-        assert_eq!(recorded_events[0], "https://carabiner-test-12345.trycloudflare.com");
+        assert_eq!(
+            recorded_events[0],
+            "https://carabiner-test-12345.trycloudflare.com"
+        );
     }
 }
-

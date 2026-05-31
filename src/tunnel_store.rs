@@ -185,7 +185,8 @@ mod tests {
 
     fn setup() {
         INIT.call_once(|| {
-            let temp_dir = std::env::temp_dir().join(format!("carabiner_test_{}", uuid::Uuid::new_v4()));
+            let temp_dir =
+                std::env::temp_dir().join(format!("carabiner_test_{}", uuid::Uuid::new_v4()));
             unsafe {
                 std::env::set_var("CARABINER_DATA_DIR", &temp_dir);
             }
@@ -197,7 +198,7 @@ mod tests {
     #[test]
     fn test_add_load_remove_tunnel() {
         setup();
-        
+
         let provider = "Ngrok";
         let protocol = "TCP";
         let port = 8080;
@@ -235,4 +236,3 @@ mod tests {
         assert!(tunnels.is_empty());
     }
 }
-

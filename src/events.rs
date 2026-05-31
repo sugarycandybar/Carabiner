@@ -83,7 +83,7 @@ mod tests {
     fn test_connect_and_emit() {
         let emitter = EventEmitter::default();
         let received = Arc::new(Mutex::new(Vec::new()));
-        
+
         let received_clone = received.clone();
         let handler_id = emitter.connect("status-changed", move |event| {
             if let ManagerEvent::StatusChanged(status) = event {
@@ -93,10 +93,19 @@ mod tests {
 
         assert_eq!(handler_id, 1);
 
-        emitter.emit("status-changed", ManagerEvent::StatusChanged("Running".to_string()));
-        emitter.emit("status-changed", ManagerEvent::StatusChanged("Stopped".to_string()));
+        emitter.emit(
+            "status-changed",
+            ManagerEvent::StatusChanged("Running".to_string()),
+        );
+        emitter.emit(
+            "status-changed",
+            ManagerEvent::StatusChanged("Stopped".to_string()),
+        );
         // Emit unrelated event
-        emitter.emit("other-event", ManagerEvent::StatusChanged("Ignored".to_string()));
+        emitter.emit(
+            "other-event",
+            ManagerEvent::StatusChanged("Ignored".to_string()),
+        );
 
         let results = received.lock().unwrap();
         assert_eq!(results.len(), 2);
@@ -163,7 +172,10 @@ mod tests {
                 let id = emitter_clone.connect("thread-event", move |_| {
                     *counter_clone.lock().unwrap() += 1;
                 });
-                emitter_clone.emit("thread-event", ManagerEvent::OutputReceived("ping".to_string()));
+                emitter_clone.emit(
+                    "thread-event",
+                    ManagerEvent::OutputReceived("ping".to_string()),
+                );
                 emitter_clone.disconnect(id);
             }));
         }
@@ -173,4 +185,3 @@ mod tests {
         }
     }
 }
-

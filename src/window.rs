@@ -157,8 +157,9 @@ impl CarabinerWindow {
                 let builder = gtk::Builder::from_resource(
                     "/io/github/sugarycandybar/Carabiner/shortcuts-dialog.ui",
                 );
-                let shortcuts: adw::ShortcutsDialog =
-                    builder.object("shortcuts_dialog").expect("shortcuts_dialog not found");
+                let shortcuts: adw::ShortcutsDialog = builder
+                    .object("shortcuts_dialog")
+                    .expect("shortcuts_dialog not found");
                 shortcuts.present(Some(&window));
             });
         }
@@ -391,8 +392,6 @@ impl PreferencesDialog {
         login_row.set_activatable_widget(Some(&login_switch));
         startup_group.add(&login_row);
 
-        
-
         {
             let settings = settings.clone();
             let updating = updating_startup_switches.clone();
@@ -400,7 +399,7 @@ impl PreferencesDialog {
             let login_row_clone = login_row.clone();
             background_switch.connect_state_set(move |switch, state| {
                 login_row_clone.set_sensitive(state);
-                
+
                 if *updating.borrow() {
                     return false.into();
                 }
@@ -535,7 +534,10 @@ impl PlayitAgentRow {
         autostart_row.set_title("Start on Carabiner Launch");
         let autostart_switch = gtk::Switch::new();
         autostart_switch.set_valign(gtk::Align::Center);
-        set_switch_active(&autostart_switch, load_settings().get_bool("playit_agent_autostart"));
+        set_switch_active(
+            &autostart_switch,
+            load_settings().get_bool("playit_agent_autostart"),
+        );
         autostart_row.add_suffix(&autostart_switch);
         autostart_row.set_activatable_widget(Some(&autostart_switch));
         row.add_row(&autostart_row);
@@ -1408,8 +1410,7 @@ fn setup_download_page(
                     progress_bar.set_text(None);
                 } else {
                     progress_bar.set_fraction(frac.min(1.0));
-                    progress_bar
-                        .set_text(Some(&format!("{:.0}%", (frac * 100.0).min(100.0))));
+                    progress_bar.set_text(Some(&format!("{:.0}%", (frac * 100.0).min(100.0))));
                 }
             }
             glib::ControlFlow::Continue
@@ -1479,7 +1480,10 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
     let port_spin_clone = port_spin.clone();
     protocol_row.connect_selected_notify(move |row| {
         let selected = row.selected();
-        if let Some(model) = row.model().and_then(|m| m.downcast::<gtk::StringList>().ok()) {
+        if let Some(model) = row
+            .model()
+            .and_then(|m| m.downcast::<gtk::StringList>().ok())
+        {
             if let Some(protocol) = model.string(selected) {
                 match protocol.as_str() {
                     "TCP" => port_spin_clone.set_value(25565.0),
