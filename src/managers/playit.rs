@@ -364,7 +364,7 @@ impl PlayitManager {
         if bundled.exists() && bundled.is_file() {
             return Some(bundled.to_string_lossy().to_string());
         }
-        util::which("playit")
+        None
     }
 
     pub fn is_installed(&self) -> bool {
@@ -662,6 +662,12 @@ impl PlayitManager {
             );
         };
 
+        let asset_name = asset
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+
         let download_url = asset
             .get("browser_download_url")
             .and_then(Value::as_str)
@@ -688,6 +694,38 @@ impl PlayitManager {
             Err(e) => return (false, e),
         };
 
+        if !asset_name.is_empty() {
+            let sha256_name = format!("{asset_name}.sha256");
+            if let Some(sha256_asset) = assets.iter().find(|a| {
+                a.get("name")
+                    .and_then(Value::as_str)
+                    .map(|n| n.eq_ignore_ascii_case(&sha256_name))
+                    .unwrap_or(false)
+            }) {
+                let sha256_url = sha256_asset
+                    .get("browser_download_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !sha256_url.is_empty() {
+                    match util::fetch_sha256(sha256_url) {
+                        Ok(checksum_text) => {
+                            let expected =
+                                util::parse_sha256_from_output(&checksum_text, &asset_name)
+                                    .unwrap_or_default();
+                            if !expected.is_empty() {
+                                if let Err(e) = util::verify_sha256(&payload, &expected) {
+                                    return (false, e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            return (false, format!("Failed to fetch checksum: {e}"));
+                        }
+                    }
+                }
+            }
+        }
+
         if let Err(err) = fs::File::create(&target).and_then(|mut file| file.write_all(&payload)) {
             return (false, format!("Failed to write binary: {err}"));
         }
@@ -695,7 +733,7 @@ impl PlayitManager {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o755));
+            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o700));
         }
 
         (true, target.to_string_lossy().to_string())
@@ -1304,6 +1342,7 @@ impl PlayitManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         util::command_no_window(&mut command);
+        util::disable_setuid_on_child(&mut command);
 
         let Ok(mut child) = command.spawn() else {
             self.state.lock().unwrap().process = None;

@@ -1,40 +1,13 @@
 use crate::constants::home_dir;
+use sha2::{Digest, Sha256};
 use std::{
     env,
     io::Read,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Child, Command},
     thread,
     time::{Duration, Instant},
 };
-
-pub fn which(name: &str) -> Option<String> {
-    let candidate = Path::new(name);
-    if candidate.components().count() > 1 && is_executable(candidate) {
-        return Some(candidate.to_string_lossy().to_string());
-    }
-
-    let path = env::var_os("PATH")?;
-    for dir in env::split_paths(&path) {
-        let full = dir.join(name);
-        if is_executable(&full) {
-            return Some(full.to_string_lossy().to_string());
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            let exe = dir.join(format!("{name}.exe"));
-            if is_executable(&exe) {
-                return Some(exe.to_string_lossy().to_string());
-            }
-        }
-    }
-    None
-}
-
-fn is_executable(path: &Path) -> bool {
-    path.exists() && path.is_file()
-}
 
 pub fn platform_name() -> String {
     if cfg!(target_os = "windows") {
@@ -217,6 +190,85 @@ pub fn config_home() -> Option<PathBuf> {
 pub fn home() -> PathBuf {
     home_dir()
 }
+
+pub fn verify_sha256(data: &[u8], expected_hex: &str) -> Result<(), String> {
+    let expected = expected_hex.trim().to_lowercase();
+    if expected.is_empty() {
+        return Err("empty hash".to_string());
+    }
+    let actual: String = Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "SHA-256 mismatch: expected {expected}, got {actual}"
+        ))
+    }
+}
+
+pub fn fetch_sha256(url: &str) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let text = client
+        .get(url)
+        .header(reqwest::header::USER_AGENT, user_agent())
+        .send()
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.text())
+        .map_err(|e| format!("failed to fetch checksum: {e}"))?;
+
+    Ok(text)
+}
+
+pub fn parse_sha256_from_output(output: &str, filename: &str) -> Option<String> {
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.is_empty() {
+            continue;
+        }
+        let hash = parts[0];
+        if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        let candidate = parts.get(1).copied().unwrap_or("");
+        let candidate = candidate.trim_start_matches('*').trim_start_matches('(');
+        let candidate = candidate.trim_end_matches(')');
+        if candidate == filename || candidate.ends_with(&format!("/{filename}")) {
+            return Some(hash.to_string());
+        }
+    }
+    output.lines().next().map(|l| {
+        l.split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    })
+}
+
+#[cfg(unix)]
+pub fn disable_setuid_on_child(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        command.pre_exec(|| {
+            libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(unix))]
+pub fn disable_setuid_on_child(_command: &mut Command) {}
 
 #[cfg(test)]
 mod tests {

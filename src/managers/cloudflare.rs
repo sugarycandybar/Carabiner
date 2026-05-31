@@ -4,6 +4,7 @@ use crate::{
     util,
 };
 use regex::Regex;
+use serde_json::Value;
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
@@ -11,6 +12,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
+    time::Duration,
 };
 
 struct State {
@@ -89,7 +91,7 @@ impl CloudflareManager {
         if bundled.exists() && bundled.is_file() {
             return Some(bundled.to_string_lossy().to_string());
         }
-        util::which("cloudflared")
+        None
     }
 
     pub fn is_installed(&self) -> bool {
@@ -135,23 +137,18 @@ impl CloudflareManager {
         let sys_name = util::platform_name();
         let machine = util::machine_name();
 
-        let url = if sys_name == "windows" {
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-                .to_string()
+        let (url, filename) = if sys_name == "windows" {
+            ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe", "cloudflared-windows-amd64.exe")
         } else if sys_name == "darwin" {
             if machine == "arm64" || machine == "aarch64" {
-                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64"
-                    .to_string()
+                ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64", "cloudflared-darwin-arm64")
             } else {
-                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64"
-                    .to_string()
+                ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64", "cloudflared-darwin-amd64")
             }
         } else if machine == "arm64" || machine == "aarch64" {
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-                .to_string()
+            ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64", "cloudflared-linux-arm64")
         } else {
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-                .to_string()
+            ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64", "cloudflared-linux-amd64")
         };
 
         let target = self.binary_path();
@@ -161,7 +158,17 @@ impl CloudflareManager {
             }
         }
 
-        let payload = match util::download_with_progress(&url, 60, |downloaded, total| {
+        let expected_hash = match self.fetch_latest_release() {
+            Ok(body) => {
+                let prefix = format!("{filename}: ");
+                body.lines()
+                    .find_map(|line| line.trim().strip_prefix(&prefix))
+                    .map(|h| h.trim().to_string())
+            }
+            Err(e) => return (false, format!("Failed to fetch release checksums: {e}")),
+        };
+
+        let payload = match util::download_with_progress(url, 60, |downloaded, total| {
             if let Some(ref cb) = progress {
                 cb(downloaded, total);
             }
@@ -170,6 +177,12 @@ impl CloudflareManager {
             Err(e) => return (false, e),
         };
 
+        if let Some(ref expected) = expected_hash {
+            if let Err(e) = util::verify_sha256(&payload, expected) {
+                return (false, e);
+            }
+        }
+
         if let Err(err) = fs::File::create(&target).and_then(|mut file| file.write_all(&payload)) {
             return (false, format!("Failed to write binary: {err}"));
         }
@@ -177,10 +190,37 @@ impl CloudflareManager {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o755));
+            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o700));
         }
 
         (true, target.to_string_lossy().to_string())
+    }
+
+    fn fetch_latest_release(&self) -> Result<String, String> {
+        let url = "https://api.github.com/repos/cloudflare/cloudflared/releases/latest";
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+        let body: String = client
+            .get(url)
+            .header(reqwest::header::USER_AGENT, util::user_agent())
+            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+            .send()
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.text())
+            .map_err(|e| format!("failed to fetch release info: {e}"))?;
+
+        let data: Value =
+            serde_json::from_str(&body).map_err(|e| format!("failed to parse release info: {e}"))?;
+
+        let release_body = data
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        Ok(release_body)
     }
 
     pub fn start(self: &Arc<Self>, port: u16, protocol: &str) -> bool {
@@ -207,6 +247,7 @@ impl CloudflareManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         util::command_no_window(&mut command);
+        util::disable_setuid_on_child(&mut command);
 
         let Ok(mut child) = command.spawn() else {
             self.set_status("error");

@@ -90,7 +90,7 @@ impl NgrokManager {
         if bundled.exists() && bundled.is_file() {
             return Some(bundled.to_string_lossy().to_string());
         }
-        util::which("ngrok")
+        None
     }
 
     pub fn is_installed(&self) -> bool {
@@ -188,7 +188,7 @@ impl NgrokManager {
         #[cfg(unix)]
         if bin_path.exists() {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&bin_path, fs::Permissions::from_mode(0o755));
+            let _ = fs::set_permissions(&bin_path, fs::Permissions::from_mode(0o700));
         }
 
         (true, bin_path.to_string_lossy().to_string())
@@ -277,6 +277,7 @@ impl NgrokManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         util::command_no_window(&mut command);
+        util::disable_setuid_on_child(&mut command);
 
         let Ok(mut child) = command.spawn() else {
             self.set_status("error");
