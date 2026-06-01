@@ -44,9 +44,11 @@
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/304a3e029a4c1bdf919d1ffe66854f3ad4dd8534/screenshots/TunnelsManager.png</image>
+      <caption>Manage network tunnels</caption>
     </screenshot>
     <screenshot>
       <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/304a3e029a4c1bdf919d1ffe66854f3ad4dd8534/screenshots/PlayitTunnelMaker.png</image>
+      <caption>Create new network tunnels</caption>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
