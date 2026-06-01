@@ -21,17 +21,6 @@
       <li>Background service support for persistent tunnels</li>
     </ul>
   </description>
-  <categories>
-    <category>Network</category>
-  </categories>
-  <keywords>
-    <keyword>tunnel</keyword>
-    <keyword>ngrok</keyword>
-    <keyword>playit</keyword>
-    <keyword>secure</keyword>
-    <keyword>network</keyword>
-    <keyword>proxy</keyword>
-  </keywords>
   <branding>
     <color type="primary" scheme_preference="light">#3584e4</color>
     <color type="primary" scheme_preference="dark">#1a5fb4</color>
