@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>io.github.sugarycandybar.Carabiner</id>
   <name>Carabiner</name>
-  <summary>Create and manage secure network tunnels</summary>
+  <summary>Create and manage network tunnels</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <developer id="io.github.sugarycandybar">
