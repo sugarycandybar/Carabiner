@@ -158,10 +158,10 @@ impl PlayitTunnel {
             tunnel.hostname = tunnel.domain.clone();
         }
 
-        if let Some(raw_date) = tunnel_data.get("created_at").and_then(Value::as_str) {
-            if let Ok(date) = DateTime::parse_from_rfc3339(&raw_date.replace('Z', "+00:00")) {
-                tunnel.created = date.with_timezone(&Local);
-            }
+        if let Some(raw_date) = tunnel_data.get("created_at").and_then(Value::as_str)
+            && let Ok(date) = DateTime::parse_from_rfc3339(&raw_date.replace('Z', "+00:00"))
+        {
+            tunnel.created = date.with_timezone(&Local);
         }
 
         tunnel
@@ -686,10 +686,10 @@ impl PlayitManager {
         }
 
         let target = self.binary_path();
-        if let Some(parent) = target.parent() {
-            if let Err(err) = fs::create_dir_all(parent) {
-                return (false, err.to_string());
-            }
+        if let Some(parent) = target.parent()
+            && let Err(err) = fs::create_dir_all(parent)
+        {
+            return (false, err.to_string());
         }
 
         let payload = match util::download_with_progress(&download_url, 120, |downloaded, total| {
@@ -719,10 +719,10 @@ impl PlayitManager {
                             let expected =
                                 util::parse_sha256_from_output(&checksum_text, &asset_name)
                                     .unwrap_or_default();
-                            if !expected.is_empty() {
-                                if let Err(e) = util::verify_sha256(&payload, &expected) {
-                                    return (false, e);
-                                }
+                            if !expected.is_empty()
+                                && let Err(e) = util::verify_sha256(&payload, &expected)
+                            {
+                                return (false, e);
                             }
                         }
                         Err(e) => {
@@ -1153,13 +1153,13 @@ impl PlayitManager {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            if let Some(value) = line.strip_prefix("server-port=") {
-                if let Ok(parsed) = value.trim().parse::<u16>() {
-                    if (1024..=65535).contains(&parsed) {
-                        return parsed;
-                    }
-                    return default_port;
+            if let Some(value) = line.strip_prefix("server-port=")
+                && let Ok(parsed) = value.trim().parse::<u16>()
+            {
+                if (1024..=65535).contains(&parsed) {
+                    return parsed;
                 }
+                return default_port;
             }
         }
         default_port

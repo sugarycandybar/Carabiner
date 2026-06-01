@@ -610,13 +610,13 @@ impl PlayitAgentRow {
             drain_receiver(rx, move |event| {
                 if let ManagerEvent::StatusChanged(status) = event {
                     Self::update_status(&row, &spinner, &switch, &error_open, &status);
-                    if let Some(msg) = status.strip_prefix("error:") {
-                        if !*error_open.borrow() {
-                            *error_open.borrow_mut() = true;
-                            show_error_for_widget(&row, "Agent Error", msg.trim());
-                            add_toast(&toast_overlay, "Agent Error");
-                            *error_open.borrow_mut() = false;
-                        }
+                    if let Some(msg) = status.strip_prefix("error:")
+                        && !*error_open.borrow()
+                    {
+                        *error_open.borrow_mut() = true;
+                        show_error_for_widget(&row, "Agent Error", msg.trim());
+                        add_toast(&toast_overlay, "Agent Error");
+                        *error_open.borrow_mut() = false;
                     }
                 }
             });
@@ -764,15 +764,13 @@ impl TunnelRow {
                 let url = public_url.borrow().clone();
                 if !url.is_empty() {
                     row.clipboard().set_text(&url);
-                    if let Some(root) = row.root() {
-                        if let Ok(win) = root.downcast::<adw::ApplicationWindow>() {
-                            if let Some(overlay) = win
-                                .content()
-                                .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
-                            {
-                                add_toast(&overlay, "Copied to clipboard");
-                            }
-                        }
+                    if let Some(root) = row.root()
+                        && let Ok(win) = root.downcast::<adw::ApplicationWindow>()
+                        && let Some(overlay) = win
+                            .content()
+                            .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
+                    {
+                        add_toast(&overlay, "Copied to clipboard");
                     }
                 }
             });
@@ -988,16 +986,15 @@ impl TunnelRowRefs {
             self.spinner.stop();
         }
 
-        if self.config.borrow().provider == "Playit" {
-            if let Some(playit) = self.manager.as_playit() {
-                let protocol = self.config.borrow().protocol.to_lowercase();
-                for tunnel in playit.tunnels_for(&protocol) {
-                    if tunnel.port == Some(self.config.borrow().port) && !tunnel.hostname.is_empty()
-                    {
-                        *self.public_url.borrow_mut() = tunnel.hostname.clone();
-                        update_tunnel_url(&self.config.borrow().id, &tunnel.hostname);
-                        break;
-                    }
+        if self.config.borrow().provider == "Playit"
+            && let Some(playit) = self.manager.as_playit()
+        {
+            let protocol = self.config.borrow().protocol.to_lowercase();
+            for tunnel in playit.tunnels_for(&protocol) {
+                if tunnel.port == Some(self.config.borrow().port) && !tunnel.hostname.is_empty() {
+                    *self.public_url.borrow_mut() = tunnel.hostname.clone();
+                    update_tunnel_url(&self.config.borrow().id, &tunnel.hostname);
+                    break;
                 }
             }
         }
@@ -1136,15 +1133,13 @@ impl TunnelRowRefs {
                     refs.row.set_title(&new_label);
                 }
                 dialog.close();
-                if let Some(root) = refs.row.root() {
-                    if let Ok(win) = root.downcast::<adw::ApplicationWindow>() {
-                        if let Some(overlay) = win
-                            .content()
-                            .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
-                        {
-                            add_toast(&overlay, "Label updated");
-                        }
-                    }
+                if let Some(root) = refs.row.root()
+                    && let Ok(win) = root.downcast::<adw::ApplicationWindow>()
+                    && let Some(overlay) = win
+                        .content()
+                        .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
+                {
+                    add_toast(&overlay, "Label updated");
                 }
             });
         }
@@ -1267,6 +1262,7 @@ impl SetupDialog {
 
 struct SetupProviderPage;
 
+#[allow(clippy::new_ret_no_self)]
 impl SetupProviderPage {
     fn new(
         nav_view: &adw::NavigationView,
@@ -1486,14 +1482,13 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
         if let Some(model) = row
             .model()
             .and_then(|m| m.downcast::<gtk::StringList>().ok())
+            && let Some(protocol) = model.string(selected)
         {
-            if let Some(protocol) = model.string(selected) {
-                match protocol.as_str() {
-                    "TCP" => port_spin_clone.set_value(25565.0),
-                    "HTTP" => port_spin_clone.set_value(8080.0),
-                    "UDP" => port_spin_clone.set_value(19132.0),
-                    _ => {}
-                }
+            match protocol.as_str() {
+                "TCP" => port_spin_clone.set_value(25565.0),
+                "HTTP" => port_spin_clone.set_value(8080.0),
+                "UDP" => port_spin_clone.set_value(19132.0),
+                _ => {}
             }
         }
     });

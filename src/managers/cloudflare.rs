@@ -167,10 +167,10 @@ impl CloudflareManager {
         };
 
         let target = self.binary_path();
-        if let Some(parent) = target.parent() {
-            if let Err(err) = fs::create_dir_all(parent) {
-                return (false, err.to_string());
-            }
+        if let Some(parent) = target.parent()
+            && let Err(err) = fs::create_dir_all(parent)
+        {
+            return (false, err.to_string());
         }
 
         let expected_hash = match self.fetch_latest_release() {
@@ -192,10 +192,10 @@ impl CloudflareManager {
             Err(e) => return (false, e),
         };
 
-        if let Some(ref expected) = expected_hash {
-            if let Err(e) = util::verify_sha256(&payload, expected) {
-                return (false, e);
-            }
+        if let Some(ref expected) = expected_hash
+            && let Err(e) = util::verify_sha256(&payload, expected)
+        {
+            return (false, e);
         }
 
         if let Err(err) = fs::File::create(&target).and_then(|mut file| file.write_all(&payload)) {
@@ -299,11 +299,11 @@ impl CloudflareManager {
             if line.is_empty() {
                 continue;
             }
-            if let Some(found) = url_re.find(&line) {
-                if self.public_endpoint().is_empty() {
-                    self.set_endpoint(found.as_str());
-                    self.set_status("running");
-                }
+            if let Some(found) = url_re.find(&line)
+                && self.public_endpoint().is_empty()
+            {
+                self.set_endpoint(found.as_str());
+                self.set_status("running");
             }
         }
 

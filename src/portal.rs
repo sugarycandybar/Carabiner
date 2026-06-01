@@ -116,7 +116,7 @@ where
         BACKGROUND_INTERFACE,
         "RequestBackground",
         Some(&params),
-        reply_type.as_deref(),
+        reply_type,
         gio::DBusCallFlags::NONE,
         -1,
         None::<&gio::Cancellable>,
@@ -124,62 +124,57 @@ where
 
     match handle {
         Ok(value) => {
-            if let Some((handle,)) = value.get::<(String,)>() {
-                if handle != expected_handle {
-                    if let Some(current_id) = subscription_id.borrow_mut().take() {
-                        bus.signal_unsubscribe(current_id);
-                    }
-                    let response_callback = {
-                        let callback = callback.clone();
-                        let subscription_id = subscription_id.clone();
-                        move |connection: &gio::DBusConnection,
-                              _sender: &str,
-                              _object_path: &str,
-                              _interface: &str,
-                              _signal_name: &str,
-                              parameters: &glib::Variant| {
-                            if let Some(current_id) = subscription_id.borrow_mut().take() {
-                                connection.signal_unsubscribe(current_id);
-                            }
-                            let Some((response, results)) =
-                                parameters.get::<(u32, HashMap<String, glib::Variant>)>()
-                            else {
-                                callback(
-                                    false,
-                                    false,
-                                    false,
-                                    "Invalid portal response.".to_string(),
-                                );
-                                return;
-                            };
-                            if response != 0 {
-                                callback(
-                                    false,
-                                    false,
-                                    false,
-                                    "Background permission was not granted.".to_string(),
-                                );
-                                return;
-                            }
-                            callback(
-                                true,
-                                result_bool(&results, "background"),
-                                result_bool(&results, "autostart"),
-                                String::new(),
-                            );
-                        }
-                    };
-                    let new_id = bus.signal_subscribe(
-                        Some(PORTAL_BUS_NAME),
-                        Some(REQUEST_INTERFACE),
-                        Some("Response"),
-                        Some(&handle),
-                        None,
-                        gio::DBusSignalFlags::NONE,
-                        response_callback,
-                    );
-                    *subscription_id.borrow_mut() = Some(new_id);
+            if let Some((handle,)) = value.get::<(String,)>()
+                && handle != expected_handle
+            {
+                if let Some(current_id) = subscription_id.borrow_mut().take() {
+                    bus.signal_unsubscribe(current_id);
                 }
+                let response_callback = {
+                    let callback = callback.clone();
+                    let subscription_id = subscription_id.clone();
+                    move |connection: &gio::DBusConnection,
+                          _sender: &str,
+                          _object_path: &str,
+                          _interface: &str,
+                          _signal_name: &str,
+                          parameters: &glib::Variant| {
+                        if let Some(current_id) = subscription_id.borrow_mut().take() {
+                            connection.signal_unsubscribe(current_id);
+                        }
+                        let Some((response, results)) =
+                            parameters.get::<(u32, HashMap<String, glib::Variant>)>()
+                        else {
+                            callback(false, false, false, "Invalid portal response.".to_string());
+                            return;
+                        };
+                        if response != 0 {
+                            callback(
+                                false,
+                                false,
+                                false,
+                                "Background permission was not granted.".to_string(),
+                            );
+                            return;
+                        }
+                        callback(
+                            true,
+                            result_bool(&results, "background"),
+                            result_bool(&results, "autostart"),
+                            String::new(),
+                        );
+                    }
+                };
+                let new_id = bus.signal_subscribe(
+                    Some(PORTAL_BUS_NAME),
+                    Some(REQUEST_INTERFACE),
+                    Some("Response"),
+                    Some(&handle),
+                    None,
+                    gio::DBusSignalFlags::NONE,
+                    response_callback,
+                );
+                *subscription_id.borrow_mut() = Some(new_id);
             }
         }
         Err(err) => {

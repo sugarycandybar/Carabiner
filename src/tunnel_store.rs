@@ -124,10 +124,10 @@ pub fn remove_tunnel(tunnel_id: &str) {
                 let _ = playit.delete_tunnels(config.port, &config.protocol.to_lowercase());
             }
         });
-    } else if let Some(manager) = manager {
-        if manager.is_running() {
-            manager.stop();
-        }
+    } else if let Some(manager) = manager
+        && manager.is_running()
+    {
+        manager.stop();
     }
 }
 

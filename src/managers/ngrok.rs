@@ -317,23 +317,21 @@ impl NgrokManager {
                 .and_then(|response| response.error_for_status())
                 .and_then(|response| response.text());
 
-            if let Ok(text) = response {
-                if let Ok(data) = serde_json::from_str::<Value>(&text) {
-                    if let Some(tunnel) = data
-                        .get("tunnels")
-                        .and_then(Value::as_array)
-                        .and_then(|tunnels| tunnels.first())
-                    {
-                        let endpoint = tunnel
-                            .get("public_url")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default();
-                        if !endpoint.is_empty() {
-                            self.set_endpoint(endpoint);
-                            self.set_status("running");
-                            return;
-                        }
-                    }
+            if let Ok(text) = response
+                && let Ok(data) = serde_json::from_str::<Value>(&text)
+                && let Some(tunnel) = data
+                    .get("tunnels")
+                    .and_then(Value::as_array)
+                    .and_then(|tunnels| tunnels.first())
+            {
+                let endpoint = tunnel
+                    .get("public_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !endpoint.is_empty() {
+                    self.set_endpoint(endpoint);
+                    self.set_status("running");
+                    return;
                 }
             }
             thread::sleep(Duration::from_secs(1));

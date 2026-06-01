@@ -55,11 +55,11 @@ pub fn load_settings() -> Settings {
     let mut values = default_map();
     let path = settings_file();
 
-    if let Ok(text) = fs::read_to_string(path) {
-        if let Ok(Value::Object(loaded)) = serde_json::from_str::<Value>(&text) {
-            for (key, value) in loaded {
-                values.insert(key, value);
-            }
+    if let Ok(text) = fs::read_to_string(path)
+        && let Ok(Value::Object(loaded)) = serde_json::from_str::<Value>(&text)
+    {
+        for (key, value) in loaded {
+            values.insert(key, value);
         }
     }
 
@@ -92,9 +92,9 @@ mod tests {
         };
         assert_eq!(settings.get_string("playit_token"), "");
         assert_eq!(settings.get_string("ngrok_token"), "");
-        assert_eq!(settings.get_bool("run_in_background"), false);
-        assert_eq!(settings.get_bool("start_on_login"), false);
-        assert_eq!(settings.get_bool("playit_agent_autostart"), false);
+        assert!(!settings.get_bool("run_in_background"));
+        assert!(!settings.get_bool("start_on_login"));
+        assert!(!settings.get_bool("playit_agent_autostart"));
     }
 
     #[test]
@@ -107,9 +107,9 @@ mod tests {
         assert_eq!(settings.get_string("playit_token"), "test-token-123");
 
         settings.set_bool("run_in_background", true);
-        assert_eq!(settings.get_bool("run_in_background"), true);
+        assert!(settings.get_bool("run_in_background"));
 
         assert_eq!(settings.get_string("non_existent_key"), "");
-        assert_eq!(settings.get_bool("non_existent_key"), false);
+        assert!(!settings.get_bool("non_existent_key"));
     }
 }
