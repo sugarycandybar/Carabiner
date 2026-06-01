@@ -43,11 +43,11 @@
   <translation type="gettext">carabiner</translation>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/304a3e029a4c1bdf919d1ffe66854f3ad4dd8534/screenshots/TunnelsManager.png</image>
+      <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/063812b73aba1748875c895faf0d8898fbb2df4d/screenshots/TunnelsManager.png</image>
       <caption>Manage network tunnels</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/304a3e029a4c1bdf919d1ffe66854f3ad4dd8534/screenshots/PlayitTunnelMaker.png</image>
+      <image>https://raw.githubusercontent.com/sugarycandybar/Carabiner/063812b73aba1748875c895faf0d8898fbb2df4d/screenshots/PlayitTunnelMaker.png</image>
       <caption>Create new network tunnels</caption>
     </screenshot>
   </screenshots>
