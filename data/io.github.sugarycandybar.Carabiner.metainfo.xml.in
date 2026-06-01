@@ -34,7 +34,7 @@
   </keywords>
   <branding>
     <color type="primary" scheme_preference="light">#3584e4</color>
-    <color type="primary" scheme_preference="dark">#1c71d8</color>
+    <color type="primary" scheme_preference="dark">#1a5fb4</color>
   </branding>
   <launchable type="desktop-id">io.github.sugarycandybar.Carabiner.desktop</launchable>
   <url type="homepage">https://github.com/sugarycandybar/Carabiner</url>
