@@ -1,34 +1,49 @@
 {
-	"id" : "io.github.sugarycandybar.Carabiner",
-	"runtime" : "org.gnome.Platform",
-	"runtime-version" : "50",
-	"sdk" : "org.gnome.Sdk",
-	"command" : "carabiner",
-	"sdk-extensions" : [
+	"id": "io.github.sugarycandybar.Carabiner",
+	"runtime": "org.gnome.Platform",
+	"runtime-version": "50",
+	"sdk": "org.gnome.Sdk",
+	"command": "carabiner",
+	"sdk-extensions": [
 		"org.freedesktop.Sdk.Extension.rust-stable"
 	],
-	"finish-args" : [
-		"--share=network",
+	"finish-args": [
 		"--share=ipc",
 		"--socket=fallback-x11",
+		"--socket=wayland",
 		"--device=dri",
-		"--socket=wayland"
+		"--share=network"
 	],
-	"cleanup" : [
-		"/include", "/lib/pkgconfig", "/man", "/share/doc",
-		"/share/gtk-doc", "/share/man", "/share/pkgconfig",
-		"*.la", "*.a"
+	"cleanup": [
+		"/include",
+		"/lib/pkgconfig",
+		"/man",
+		"/share/doc",
+		"/share/gtk-doc",
+		"/share/man",
+		"/share/pkgconfig",
+		"*.la",
+		"*.a"
 	],
-	"build-options" : {
-		"append-path" : "/usr/lib/sdk/rust-stable/bin"
+	"build-options": {
+		"append-path": "/usr/lib/sdk/rust-stable/bin",
+		"env": {
+			"CARGO_HOME": "/run/build/carabiner/cargo"
+		}
 	},
-	"modules" : [
+	"modules": [
 		{
-			"name" : "carabiner",
-			"builddir" : true,
-			"buildsystem" : "meson",
-			"sources" : [
-				{ "type" : "dir", "path" : "." }
+			"name": "carabiner",
+			"buildsystem": "meson",
+			"builddir": true,
+			"config-opts": [
+				"--buildtype=release"
+			],
+			"sources": [
+				{
+					"type": "dir",
+					"path": "."
+				}
 			]
 		}
 	]
