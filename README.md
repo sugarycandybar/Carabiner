@@ -1,18 +1,21 @@
 <p align="center">
   <img src="data/icons/hicolor/scalable/apps/io.github.sugarycandybar.Carabiner.svg" width="128" height="128" alt="Carabiner">
 </p>
+
 <h1 align="center">Carabiner</h1>
+
 <p align="center">
-  Create and manage secure network tunnels
-  <br>
-  <img src="https://img.shields.io/badge/license-GPL--3.0-3584e4" alt="License">
-  <img src="https://img.shields.io/github/v/tag/sugarycandybar/Carabiner?sort=semver&color=3584e4" alt="Version">
+  Create and manage network tunnels
+  <br><br>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3584e4" alt="License"></a>
+  <a href="https://github.com/sugarycandybar/Carabiner/releases"><img src="https://img.shields.io/github/v/tag/sugarycandybar/Carabiner?sort=semver&color=blue" alt="Version"></a>
   <a href="https://github.com/sugarycandybar/Carabiner/actions/workflows/ci.yml"><img src="https://github.com/sugarycandybar/Carabiner/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 ## Description
 
-Carabiner is an easy-to-use utility for sharing HTTP, UDP, or TCP services through Ngrok, Playit, and Cloudflare tunnels.
+Carabiner is an easy-to-use utility for HTTP, UDP, or TCP services.
+Share local web servers, game servers, or other network services.
 
 ## Features
 
@@ -28,6 +31,15 @@ Carabiner is an easy-to-use utility for sharing HTTP, UDP, or TCP services throu
 ## Development
 
 You can clone this project and run it using [GNOME Builder](https://apps.gnome.org/Builder/).
+
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/TunnelsManager.png" alt="Tunnel view" width="500" />
+</p>
+<p align="center">
+  <img src="screenshots/PlayitTunnelMaker.png" alt="Tunnel view" width="500" />
+</p>
 
 ## License
 
