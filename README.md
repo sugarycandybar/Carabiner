@@ -6,7 +6,8 @@
   Create and manage secure network tunnels
   <br>
   <img src="https://img.shields.io/badge/license-GPL--3.0-3584e4" alt="License">
-  <img src="https://img.shields.io/badge/version-1.0.0-3584e4" alt="Version">
+  <img src="https://img.shields.io/github/v/tag/sugarycandybar/Carabiner?sort=semver&color=3584e4" alt="Version">
+  <a href="https://github.com/sugarycandybar/Carabiner/actions/workflows/ci.yml"><img src="https://github.com/sugarycandybar/Carabiner/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 ## Description
