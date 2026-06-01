@@ -190,7 +190,6 @@ mod tests {
             unsafe {
                 std::env::set_var("CARABINER_DATA_DIR", &temp_dir);
             }
-            // Ensure DATA_DIR is initialized now with the custom path
             let _ = &*crate::constants::DATA_DIR;
         });
     }
@@ -215,22 +214,18 @@ mod tests {
         assert_eq!(tunnels[0].port, port);
         assert_eq!(tunnels[0].label, label);
 
-        // Test update url
         update_tunnel_url(&id, "tcp://ngrok.com:12345");
         let tunnels = load_tunnels();
         assert_eq!(tunnels[0].public_url, "tcp://ngrok.com:12345");
 
-        // Test update label
         update_tunnel_label(&id, "Updated Label");
         let tunnels = load_tunnels();
         assert_eq!(tunnels[0].label, "Updated Label");
 
-        // Test update autostart
         update_tunnel_autostart(&id, true);
         let tunnels = load_tunnels();
         assert!(tunnels[0].autostart);
 
-        // Clean up / remove
         remove_tunnel(&id);
         let tunnels = load_tunnels();
         assert!(tunnels.is_empty());

@@ -109,7 +109,6 @@ mod tests {
         settings.set_bool("run_in_background", true);
         assert_eq!(settings.get_bool("run_in_background"), true);
 
-        // Test fallback for missing or mismatching keys
         assert_eq!(settings.get_string("non_existent_key"), "");
         assert_eq!(settings.get_bool("non_existent_key"), false);
     }

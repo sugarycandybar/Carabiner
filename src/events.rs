@@ -101,7 +101,6 @@ mod tests {
             "status-changed",
             ManagerEvent::StatusChanged("Stopped".to_string()),
         );
-        // Emit unrelated event
         emitter.emit(
             "other-event",
             ManagerEvent::StatusChanged("Ignored".to_string()),
@@ -126,13 +125,10 @@ mod tests {
         emitter.emit("test", ManagerEvent::OutputReceived("hello".to_string()));
         assert_eq!(*counter.lock().unwrap(), 1);
 
-        // Disconnect
         assert!(emitter.disconnect(id));
-        // Disconnecting again should return false
         assert!(!emitter.disconnect(id));
 
         emitter.emit("test", ManagerEvent::OutputReceived("world".to_string()));
-        // Counter should still be 1
         assert_eq!(*counter.lock().unwrap(), 1);
     }
 

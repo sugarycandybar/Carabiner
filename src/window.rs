@@ -529,7 +529,6 @@ impl PlayitAgentRow {
         suffix_box.append(&switch);
         row.add_suffix(&suffix_box);
 
-        // Inner autostart row moved into the expander
         let autostart_row = adw::ActionRow::new();
         autostart_row.set_title("Start on Carabiner Launch");
         let autostart_switch = gtk::Switch::new();
@@ -582,7 +581,6 @@ impl PlayitAgentRow {
             });
         }
 
-        // hook autostart switch to persistent settings
         {
             autostart_switch.connect_state_set(move |_, state| {
                 let mut settings = load_settings();

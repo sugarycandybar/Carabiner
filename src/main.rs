@@ -1,5 +1,7 @@
 mod application;
-mod config;
+mod config {
+    include!(concat!(env!("OUT_DIR"), "/config.rs"));
+}
 mod constants;
 mod events;
 mod managers;

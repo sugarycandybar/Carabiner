@@ -8,30 +8,16 @@ gnome.compile_resources('carabiner',
   install_dir: pkgdatadir,
 )
 
-conf = configuration_data()
-conf.set_quoted('VERSION', meson.project_version())
-conf.set_quoted('GETTEXT_PACKAGE', 'carabiner')
-conf.set_quoted('LOCALEDIR', get_option('prefix') / get_option('localedir'))
-conf.set_quoted('PKGDATADIR', pkgdatadir)
-
-configure_file(
-    input: 'config.rs.in',
-    output: 'config.rs',
-    configuration: conf
-)
-
-# Copy the config.rs output to the source directory.
-run_command(
-  'cp',
-  meson.project_build_root() / 'src' / 'config.rs',
-  meson.project_source_root() / 'src' / 'config.rs',
-  check: true
-)
-
 cargo_bin  = find_program('cargo')
 cargo_opt  = [ '--manifest-path', meson.project_source_root() / 'Cargo.toml' ]
 cargo_opt += [ '--target-dir', meson.project_build_root()  / 'src' ]
-cargo_env  = [ 'CARGO_HOME=' + meson.project_build_root()  / 'cargo-home' ]
+cargo_env  = [
+  'CARGO_HOME=' + meson.project_build_root() / 'cargo-home',
+  'CARABINER_VERSION=' + meson.project_version(),
+  'CARABINER_GETTEXT_PACKAGE=carabiner',
+  'CARABINER_LOCALEDIR=' + get_option('prefix') / get_option('localedir'),
+  'CARABINER_PKGDATADIR=' + pkgdatadir,
+]
 
 if get_option('buildtype') == 'release'
   cargo_opt += [ '--release' ]

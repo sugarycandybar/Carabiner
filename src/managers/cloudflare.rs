@@ -346,7 +346,6 @@ mod tests {
             }
         });
 
-        // Simulated log output containing a Quick Tunnel URL
         let simulated_log = "\
 2026-05-16T22:37:52Z INF +------------------------------------------------------------+
 2026-05-16T22:37:52Z INF |  Your quick Tunnel has been created! Visit link:          |
@@ -357,7 +356,6 @@ mod tests {
         let reader = Cursor::new(simulated_log.as_bytes());
         manager.clone().read_stream(Box::new(reader), false);
 
-        // Verify status and endpoint are updated correctly
         assert_eq!(manager.status(), "running");
         assert_eq!(
             manager.public_endpoint(),

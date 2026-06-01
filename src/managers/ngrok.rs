@@ -430,10 +430,8 @@ mod tests {
 
         let manager = NgrokManager::new();
 
-        // Initially, should have no auth token
         assert!(!manager.has_auth_token());
 
-        // Create a fake config directory and write a file containing 'authtoken: abc'
         let fake_home = util::home();
         let config_dir = fake_home.join(".config").join("ngrok");
         fs::create_dir_all(&config_dir).unwrap();
@@ -445,10 +443,8 @@ mod tests {
         )
         .unwrap();
 
-        // Now, it should detect the auth token
         assert!(manager.has_auth_token());
 
-        // Clean up
         let _ = fs::remove_file(config_file);
     }
 }
