@@ -26,10 +26,7 @@
 		"*.a"
 	],
 	"build-options": {
-		"append-path": "/usr/lib/sdk/rust-stable/bin",
-		"env": {
-			"CARGO_HOME": "/run/build/carabiner/cargo"
-		}
+		"append-path": "/usr/lib/sdk/rust-stable/bin"
 	},
 	"modules": [
 		{
