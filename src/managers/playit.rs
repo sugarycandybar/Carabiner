@@ -628,7 +628,8 @@ impl PlayitManager {
         &self,
         progress: Option<Box<dyn Fn(u64, u64) + Send + 'static>>,
     ) -> (bool, String) {
-        let release_url = "https://api.github.com/repos/playit-cloud/playit-agent/releases/tags/v0.17.1";
+        let release_url =
+            "https://api.github.com/repos/playit-cloud/playit-agent/releases/tags/v0.17.1";
         let response = self
             .client
             .get(release_url)

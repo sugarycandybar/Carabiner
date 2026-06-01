@@ -1,8 +1,7 @@
 use crate::constants::home_dir;
 use sha2::{Digest, Sha256};
 use std::{
-    env,
-    fs,
+    env, fs,
     io::Read,
     path::{Path, PathBuf},
     process::{Child, Command},
@@ -248,13 +247,10 @@ pub fn parse_sha256_from_output(output: &str, filename: &str) -> Option<String> 
             return Some(hash.to_string());
         }
     }
-    output.lines().next().map(|l| {
-        l.split_whitespace()
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string()
-    })
+    output
+        .lines()
+        .next()
+        .map(|l| l.split_whitespace().next().unwrap_or("").trim().to_string())
 }
 
 pub fn save_binary_hash(bin_path: &Path, data: &[u8]) -> Result<(), String> {
@@ -300,7 +296,11 @@ pub fn check_binary_integrity(bin_path: &Path) -> Result<(), String> {
 
 fn hash_path(bin_path: &Path) -> PathBuf {
     let mut p = bin_path.to_path_buf();
-    let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = p
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     p.set_file_name(format!("{name}.sha256"));
     p
 }

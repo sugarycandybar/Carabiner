@@ -10,7 +10,8 @@ fn main() {
     let version = std::env::var("CARABINER_VERSION").unwrap_or_else(|_| "unknown".into());
     let gettext_package =
         std::env::var("CARABINER_GETTEXT_PACKAGE").unwrap_or_else(|_| "carabiner".into());
-    let localedir = std::env::var("CARABINER_LOCALEDIR").unwrap_or_else(|_| "/usr/share/locale".into());
+    let localedir =
+        std::env::var("CARABINER_LOCALEDIR").unwrap_or_else(|_| "/usr/share/locale".into());
     let pkgdatadir =
         std::env::var("CARABINER_PKGDATADIR").unwrap_or_else(|_| "/usr/share/carabiner".into());
 

@@ -138,17 +138,32 @@ impl CloudflareManager {
         let machine = util::machine_name();
 
         let (url, filename) = if sys_name == "windows" {
-            ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe", "cloudflared-windows-amd64.exe")
+            (
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+                "cloudflared-windows-amd64.exe",
+            )
         } else if sys_name == "darwin" {
             if machine == "arm64" || machine == "aarch64" {
-                ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64", "cloudflared-darwin-arm64")
+                (
+                    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64",
+                    "cloudflared-darwin-arm64",
+                )
             } else {
-                ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64", "cloudflared-darwin-amd64")
+                (
+                    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64",
+                    "cloudflared-darwin-amd64",
+                )
             }
         } else if machine == "arm64" || machine == "aarch64" {
-            ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64", "cloudflared-linux-arm64")
+            (
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
+                "cloudflared-linux-arm64",
+            )
         } else {
-            ("https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64", "cloudflared-linux-amd64")
+            (
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+                "cloudflared-linux-amd64",
+            )
         };
 
         let target = self.binary_path();
@@ -216,8 +231,8 @@ impl CloudflareManager {
             .and_then(|r| r.text())
             .map_err(|e| format!("failed to fetch release info: {e}"))?;
 
-        let data: Value =
-            serde_json::from_str(&body).map_err(|e| format!("failed to parse release info: {e}"))?;
+        let data: Value = serde_json::from_str(&body)
+            .map_err(|e| format!("failed to parse release info: {e}"))?;
 
         let release_body = data
             .get("body")
