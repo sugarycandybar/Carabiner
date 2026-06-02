@@ -1279,16 +1279,11 @@ impl SetupProviderPage {
         group.set_title("Select Provider");
         original_page.add(&group);
 
-        let subtitles = [
-            ("Cloudflare", "Free HTTP · No account"),
-            ("Ngrok", "Free UDP · Paid TCP"),
-            ("Playit", "Free UDP · Free TCP"),
-        ];
+        let providers = ["Cloudflare", "Ngrok", "Playit"];
 
-        for (provider, subtitle) in subtitles {
+        for provider in providers {
             let row = adw::ActionRow::new();
             row.set_title(provider);
-            row.set_subtitle(subtitle);
             row.set_activatable(true);
             let icon = gtk::Image::from_icon_name("go-next-symbolic");
             row.add_suffix(&icon);
