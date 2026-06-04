@@ -26,7 +26,7 @@ Share local web servers, game servers, or other network services.
 
 ## Install
 
-[![Download on Flathub](https://flathub.org/assets/badges/flathub-badge-en.png)](https://flathub.org/en/apps/io.github.sugarycandybar.Carabiner)
+[![Download on Flathub](https://flathub.org/api/badge?svg&locale=en)](https://flathub.org/en/apps/io.github.sugarycandybar.Carabiner)
 
 ## Development
 
