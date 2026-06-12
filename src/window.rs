@@ -1,4 +1,3 @@
-
 use crate::{
     constants::{APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE},
     events::ManagerEvent,
@@ -938,8 +937,8 @@ impl TunnelRow {
                     on_delete(Some("Tunnel deleted".to_string()));
                 });
                 dialog.connect_response(Some("cancel"), |dialog, _| {
-    dialog.close();
-});
+                    dialog.close();
+                });
                 let parent = delete_btn_for_parent
                     .root()
                     .and_then(|root| root.downcast::<gtk::Window>().ok());
