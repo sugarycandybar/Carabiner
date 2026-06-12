@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 
 use crate::{
     constants::{APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE},
@@ -29,18 +28,17 @@ fn add_toast(overlay: &adw::ToastOverlay, text: &str) {
 }
 
 fn show_message(parent: Option<&gtk::Window>, title: &str, body: &str) {
-    let dialog = adw::MessageDialog::builder()
+    let dialog = adw::AlertDialog::builder()
         .heading(title)
         .body(body)
         .body_use_markup(true)
         .build();
     dialog.add_response("ok", "Close");
     dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
-    if let Some(parent) = parent {
-        dialog.set_transient_for(Some(parent));
-    }
-    dialog.connect_response(Some("ok"), |dialog, _| dialog.close());
-    dialog.present();
+    dialog.connect_response(Some("ok"), |dialog, _| {
+        dialog.close();
+    });
+    dialog.present(parent);
 }
 
 fn show_error_for_widget(widget: &impl IsA<gtk::Widget>, title: &str, body: &str) {
@@ -923,9 +921,9 @@ impl TunnelRow {
                 } else {
                     label
                 };
-                let dialog = adw::MessageDialog::builder()
-                    .heading("Delete Tunnel?")
-                    .body(format!("\"{name}\" will be permanently removed."))
+                let dialog = adw::AlertDialog::builder()
+                    .heading(format!("Are you sure you want to delete \"{name}\"?"))
+                    .body("This will permanently remove the tunnel.")
                     .build();
                 dialog.add_response("cancel", "Cancel");
                 dialog.add_response("delete", "Delete");
@@ -939,14 +937,13 @@ impl TunnelRow {
                     dialog.close();
                     on_delete(Some("Tunnel deleted".to_string()));
                 });
-                dialog.connect_response(Some("cancel"), |dialog, _| dialog.close());
-                if let Some(parent) = delete_btn_for_parent
+                dialog.connect_response(Some("cancel"), |dialog, _| {
+    dialog.close();
+});
+                let parent = delete_btn_for_parent
                     .root()
-                    .and_then(|root| root.downcast::<gtk::Window>().ok())
-                {
-                    dialog.set_transient_for(Some(&parent));
-                }
-                dialog.present();
+                    .and_then(|root| root.downcast::<gtk::Window>().ok());
+                dialog.present(parent.as_ref());
             });
         }
 
