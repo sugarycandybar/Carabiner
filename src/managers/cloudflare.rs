@@ -242,14 +242,30 @@ impl CloudflareManager {
         Ok(release_body)
     }
 
-    pub fn start(self: &Arc<Self>, port: u16, protocol: &str) -> bool {
+    pub fn start(self: &Arc<Self>, port: u16, protocol: &str) -> (bool, String) {
         if self.is_running() {
-            return true;
+            return (true, String::new());
         }
 
-        let Some(binary) = self.resolve_binary() else {
-            self.set_status("error");
-            return false;
+        let binary = match self.resolve_binary() {
+            Some(b) => b,
+            None => {
+                let (ok, msg) = self.install_latest_binary(None);
+                if !ok {
+                    self.set_status("error");
+                    return (false, format!("Failed to install cloudflared: {msg}"));
+                }
+                match self.resolve_binary() {
+                    Some(b) => b,
+                    None => {
+                        self.set_status("error");
+                        return (
+                            false,
+                            "cloudflared binary not found after download".to_string(),
+                        );
+                    }
+                }
+            }
         };
 
         {
@@ -260,9 +276,29 @@ impl CloudflareManager {
         self.set_endpoint("");
         self.set_status("starting");
 
-        if util::check_binary_integrity(Path::new(&binary)).is_err() {
-            self.set_status("error");
-            return false;
+        if let Err(e) = util::check_binary_integrity(Path::new(&binary)) {
+            let (ok, msg2) = self.install_latest_binary(None);
+            if !ok {
+                self.set_status("error");
+                return (
+                    false,
+                    format!("cloudflared corrupted ({e}) and reinstall failed: {msg2}"),
+                );
+            }
+            let binary = match self.resolve_binary() {
+                Some(b) => b,
+                None => {
+                    self.set_status("error");
+                    return (
+                        false,
+                        "cloudflared binary not found after reinstall".to_string(),
+                    );
+                }
+            };
+            if let Err(e) = util::check_binary_integrity(Path::new(&binary)) {
+                self.set_status("error");
+                return (false, format!("cloudflared still corrupted after reinstall: {e}"));
+            }
         }
 
         let mut command = Command::new(binary);
@@ -273,9 +309,12 @@ impl CloudflareManager {
         util::command_no_window(&mut command);
         util::disable_setuid_on_child(&mut command);
 
-        let Ok(mut child) = command.spawn() else {
-            self.set_status("error");
-            return false;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                self.set_status("error");
+                return (false, format!("Failed to execute cloudflared: {e}"));
+            }
         };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -289,7 +328,7 @@ impl CloudflareManager {
             let manager = self.clone();
             thread::spawn(move || manager.read_stream(Box::new(BufReader::new(stdout)), true));
         }
-        true
+        (true, String::new())
     }
 
     fn read_stream(self: Arc<Self>, reader: Box<dyn BufRead + Send>, finalize: bool) {

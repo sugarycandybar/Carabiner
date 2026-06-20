@@ -63,11 +63,18 @@ impl ManagerHandle {
         }
     }
 
-    pub fn start(&self, port: u16, protocol: &str) -> bool {
+    pub fn start(&self, port: u16, protocol: &str) -> (bool, String) {
         match self {
-            Self::Playit(manager) => manager.start(port, protocol, "", false, false).0,
+            Self::Playit(manager) => manager.start(port, protocol, "", false, false),
             Self::Cloudflare(manager) => manager.start(port, protocol),
-            Self::Ngrok(manager) => manager.start(port, protocol),
+            Self::Ngrok(manager) => {
+                let ok = manager.start(port, protocol);
+                if ok {
+                    (true, String::new())
+                } else {
+                    (false, "Failed to start tunnel.".to_string())
+                }
+            }
         }
     }
 

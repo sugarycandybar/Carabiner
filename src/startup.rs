@@ -37,7 +37,7 @@ fn start_items() -> usize {
             }
         }
 
-        if manager.start(config.port, &config.protocol.to_lowercase()) {
+        if manager.start(config.port, &config.protocol.to_lowercase()).0 {
             started += 1;
         }
     }

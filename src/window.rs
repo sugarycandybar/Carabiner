@@ -795,12 +795,7 @@ impl TunnelRow {
                                     }
                                 }
                             }
-                            let ok = manager.start(config.port, &config.protocol.to_lowercase());
-                            let msg = if ok {
-                                String::new()
-                            } else {
-                                "Failed to start tunnel.".to_string()
-                            };
+                            let (ok, msg) = manager.start(config.port, &config.protocol.to_lowercase());
                             let _ = start_tx.send((ok, msg));
                         });
                     }
