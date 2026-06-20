@@ -297,7 +297,10 @@ impl CloudflareManager {
             };
             if let Err(e) = util::check_binary_integrity(Path::new(&binary)) {
                 self.set_status("error");
-                return (false, format!("cloudflared still corrupted after reinstall: {e}"));
+                return (
+                    false,
+                    format!("cloudflared still corrupted after reinstall: {e}"),
+                );
             }
         }
 

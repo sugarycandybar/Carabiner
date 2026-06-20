@@ -795,7 +795,8 @@ impl TunnelRow {
                                     }
                                 }
                             }
-                            let (ok, msg) = manager.start(config.port, &config.protocol.to_lowercase());
+                            let (ok, msg) =
+                                manager.start(config.port, &config.protocol.to_lowercase());
                             let _ = start_tx.send((ok, msg));
                         });
                     }
