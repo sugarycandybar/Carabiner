@@ -67,14 +67,7 @@ impl ManagerHandle {
         match self {
             Self::Playit(manager) => manager.start(port, protocol, "", false, false),
             Self::Cloudflare(manager) => manager.start(port, protocol),
-            Self::Ngrok(manager) => {
-                let ok = manager.start(port, protocol);
-                if ok {
-                    (true, String::new())
-                } else {
-                    (false, "Failed to start tunnel.".to_string())
-                }
-            }
+            Self::Ngrok(manager) => manager.start(port, protocol),
         }
     }
 

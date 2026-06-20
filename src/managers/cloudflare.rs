@@ -198,14 +198,20 @@ impl CloudflareManager {
             return (false, e);
         }
 
-        if let Err(err) = fs::File::create(&target).and_then(|mut file| file.write_all(&payload)) {
+        let temp = target.with_extension("tmp");
+        if let Err(err) = fs::File::create(&temp).and_then(|mut file| file.write_all(&payload)) {
             return (false, format!("Failed to write binary: {err}"));
         }
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o700));
+            let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(0o700));
+        }
+
+        if let Err(err) = fs::rename(&temp, &target) {
+            let _ = fs::remove_file(&temp);
+            return (false, format!("Failed to install binary: {err}"));
         }
 
         if let Err(e) = util::save_binary_hash(&target, &payload) {

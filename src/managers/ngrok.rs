@@ -166,23 +166,39 @@ impl NgrokManager {
             Err(e) => return (false, e),
         };
 
+        let bin_name = self
+            .binary_path()
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let temp_dir = self.directory.join(".ngrok_extract");
+        let _ = fs::remove_dir_all(&temp_dir);
+
         if is_zip {
             let reader = Cursor::new(payload);
             let mut archive = match zip::ZipArchive::new(reader) {
                 Ok(archive) => archive,
-                Err(err) => return (false, format!("Failed to extract archive: {err}")),
+                Err(err) => return (false, format!("Failed to read archive: {err}")),
             };
-            if let Err(err) = archive.extract(&self.directory) {
+            if let Err(err) = archive.extract(&temp_dir) {
                 return (false, format!("Failed to extract archive: {err}"));
             }
         } else {
             let reader = Cursor::new(payload);
             let decoder = flate2::read::GzDecoder::new(reader);
             let mut archive = tar::Archive::new(decoder);
-            if let Err(err) = archive.unpack(&self.directory) {
+            if let Err(err) = archive.unpack(&temp_dir) {
                 return (false, format!("Failed to extract archive: {err}"));
             }
         }
+
+        let extracted = temp_dir.join(&bin_name);
+        if let Err(err) = fs::rename(&extracted, self.binary_path()) {
+            let _ = fs::remove_dir_all(&temp_dir);
+            return (false, format!("Failed to install binary: {err}"));
+        }
+        let _ = fs::remove_dir_all(&temp_dir);
 
         let bin_path = self.binary_path();
         #[cfg(unix)]
@@ -264,14 +280,27 @@ impl NgrokManager {
         })
     }
 
-    pub fn start(self: &Arc<Self>, port: u16, protocol: &str) -> bool {
+    pub fn start(self: &Arc<Self>, port: u16, protocol: &str) -> (bool, String) {
         if self.is_running() {
-            return true;
+            return (true, String::new());
         }
 
-        let Some(binary) = self.resolve_binary() else {
-            self.set_status("error");
-            return false;
+        let binary = match self.resolve_binary() {
+            Some(b) => b,
+            None => {
+                let (ok, msg) = self.install_latest_binary(None);
+                if !ok {
+                    self.set_status("error");
+                    return (false, format!("Failed to install ngrok: {msg}"));
+                }
+                match self.resolve_binary() {
+                    Some(b) => b,
+                    None => {
+                        self.set_status("error");
+                        return (false, "ngrok binary not found after download".to_string());
+                    }
+                }
+            }
         };
 
         {
@@ -282,9 +311,26 @@ impl NgrokManager {
         self.set_endpoint("");
         self.set_status("starting");
 
-        if util::check_binary_integrity(Path::new(&binary)).is_err() {
-            self.set_status("error");
-            return false;
+        if let Err(e) = util::check_binary_integrity(Path::new(&binary)) {
+            let (ok, msg2) = self.install_latest_binary(None);
+            if !ok {
+                self.set_status("error");
+                return (
+                    false,
+                    format!("ngrok corrupted ({e}) and reinstall failed: {msg2}"),
+                );
+            }
+            let binary = match self.resolve_binary() {
+                Some(b) => b,
+                None => {
+                    self.set_status("error");
+                    return (false, "ngrok binary not found after reinstall".to_string());
+                }
+            };
+            if let Err(e) = util::check_binary_integrity(Path::new(&binary)) {
+                self.set_status("error");
+                return (false, format!("ngrok still corrupted after reinstall: {e}"));
+            }
         }
 
         let mut command = Command::new(binary);
@@ -295,16 +341,19 @@ impl NgrokManager {
         util::command_no_window(&mut command);
         util::disable_setuid_on_child(&mut command);
 
-        let Ok(mut child) = command.spawn() else {
-            self.set_status("error");
-            return false;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                self.set_status("error");
+                return (false, format!("Failed to execute ngrok: {e}"));
+            }
         };
         let stdout = child.stdout.take();
         self.state.lock().unwrap().process = Some(child);
 
         let manager = self.clone();
         thread::spawn(move || manager.read_output(stdout));
-        true
+        (true, String::new())
     }
 
     fn fetch_url(self: Arc<Self>) {

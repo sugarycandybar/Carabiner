@@ -733,14 +733,20 @@ impl PlayitManager {
             }
         }
 
-        if let Err(err) = fs::File::create(&target).and_then(|mut file| file.write_all(&payload)) {
+        let temp = target.with_extension("tmp");
+        if let Err(err) = fs::File::create(&temp).and_then(|mut file| file.write_all(&payload)) {
             return (false, format!("Failed to write binary: {err}"));
         }
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(0o700));
+            let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(0o700));
+        }
+
+        if let Err(err) = fs::rename(&temp, &target) {
+            let _ = fs::remove_file(&temp);
+            return (false, format!("Failed to install binary: {err}"));
         }
 
         if let Err(e) = util::save_binary_hash(&target, &payload) {
@@ -1340,14 +1346,29 @@ impl PlayitManager {
         self.create_tunnel(port, protocol, label)
     }
 
-    fn start_agent_service(self: &Arc<Self>, binary: &str) -> bool {
+    fn start_agent_service(self: &Arc<Self>, binary: &str) -> (bool, String) {
         if self.is_running() {
-            return true;
+            return (true, String::new());
         }
 
         if let Err(e) = util::check_binary_integrity(Path::new(binary)) {
-            self.state.lock().unwrap().last_error = format!("Integrity check failed: {e}");
-            return false;
+            let (ok, msg) = self.install_latest_binary(None);
+            if !ok {
+                return (
+                    false,
+                    format!("playit corrupted ({e}) and reinstall failed: {msg}"),
+                );
+            }
+            let Some(binary) = self.resolve_binary() else {
+                return (false, "playit binary not found after reinstall".to_string());
+            };
+            if let Err(e) = util::check_binary_integrity(Path::new(&binary)) {
+                return (
+                    false,
+                    format!("playit still corrupted after reinstall: {e}"),
+                );
+            }
+            return self.start_agent_service(&binary);
         }
 
         let mut command = Command::new(binary);
@@ -1360,16 +1381,19 @@ impl PlayitManager {
         util::command_no_window(&mut command);
         util::disable_setuid_on_child(&mut command);
 
-        let Ok(mut child) = command.spawn() else {
-            self.state.lock().unwrap().process = None;
-            return false;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                self.state.lock().unwrap().process = None;
+                return (false, format!("Failed to execute playit agent: {e}"));
+            }
         };
         let stdout = child.stdout.take();
         self.state.lock().unwrap().process = Some(child);
 
         let manager = self.clone();
         thread::spawn(move || manager.read_output(stdout));
-        true
+        (true, String::new())
     }
 
     pub fn start(
@@ -1461,10 +1485,11 @@ impl PlayitManager {
             self.emit_endpoint_changed();
         }
 
-        if !self.start_agent_service(&binary) {
+        let (ok, msg) = self.start_agent_service(&binary);
+        if !ok {
             self.mark_tunnel_in_use(&tunnel.id, false);
             self.state.lock().unwrap().active_tunnel_id = None;
-            return (false, "failed to start playit agent".to_string());
+            return (false, msg);
         }
 
         self.state.lock().unwrap().claim_url.clear();
@@ -1480,8 +1505,18 @@ impl PlayitManager {
             return (true, "playit agent is already running".to_string());
         }
 
-        let Some(binary) = self.resolve_binary() else {
-            return (false, "playit binary not found".to_string());
+        let binary = match self.resolve_binary() {
+            Some(b) => b,
+            None => {
+                let (ok, msg) = self.install_latest_binary(None);
+                if !ok {
+                    return (false, format!("Failed to install playit: {msg}"));
+                }
+                match self.resolve_binary() {
+                    Some(b) => b,
+                    None => return (false, "playit binary not found after download".to_string()),
+                }
+            }
         };
 
         self.set_status("starting");
@@ -1530,9 +1565,10 @@ impl PlayitManager {
             }
         }
 
-        if !self.start_agent_service(&binary) {
+        let (ok, msg) = self.start_agent_service(&binary);
+        if !ok {
             self.set_status("stopped");
-            return (false, "failed to start playit agent".to_string());
+            return (false, msg);
         }
 
         self.state.lock().unwrap().claim_url.clear();
