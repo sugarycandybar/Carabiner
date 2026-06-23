@@ -18,7 +18,8 @@ fn background_options(autostart: bool, handle_token: &str) -> HashMap<&'static s
         ("handle_token", handle_token.to_variant()),
         (
             "reason",
-            t("Carabiner can keep selected network tunnels running in the background.").to_variant(),
+            t("Carabiner can keep selected network tunnels running in the background.")
+                .to_variant(),
         ),
         ("autostart", autostart.to_variant()),
         (
@@ -150,13 +151,13 @@ where
                             return;
                         };
                         if response != 0 {
-            callback(
-                    false,
-                    false,
-                    false,
-                    t("Background permission was not granted."),
-                );
-                return;
+                            callback(
+                                false,
+                                false,
+                                false,
+                                t("Background permission was not granted."),
+                            );
+                            return;
                         }
                         callback(
                             true,

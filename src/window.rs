@@ -1,7 +1,6 @@
 use crate::{
     constants::{APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE},
     events::ManagerEvent,
-    util::t,
     managers::{
         ManagerHandle, get_manager_for_tunnel, get_provider_manager, get_shared_playit_manager,
         ngrok::NgrokManager, playit::PlayitManager,
@@ -12,6 +11,7 @@ use crate::{
         TunnelConfig, add_tunnel, load_tunnels, managers_snapshot, remove_tunnel, stop_all_tunnels,
         update_tunnel_autostart, update_tunnel_label, update_tunnel_url,
     },
+    util::t,
 };
 use adw::prelude::*;
 use crossbeam_channel::{Receiver, unbounded};
@@ -72,7 +72,7 @@ impl CarabinerWindow {
             .application(app)
             .default_width(420)
             .default_height(560)
-            .title(&t("Carabiner"))
+            .title(t("Carabiner"))
             .build();
 
         let toast_overlay = adw::ToastOverlay::new();
@@ -85,13 +85,13 @@ impl CarabinerWindow {
 
         let add_btn = gtk::Button::builder()
             .icon_name("list-add-symbolic")
-            .tooltip_text(&t("Add Tunnel"))
+            .tooltip_text(t("Add Tunnel"))
             .build();
         header.pack_start(&add_btn);
 
         let menu_btn = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
-            .tooltip_text(&t("Main Menu"))
+            .tooltip_text(t("Main Menu"))
             .build();
         header.pack_end(&menu_btn);
 
@@ -214,11 +214,11 @@ impl CarabinerWindow {
 
     fn show_about(&self) {
         let about = adw::AboutDialog::builder()
-            .application_name(&t(APP_NAME))
+            .application_name(t(APP_NAME))
             .application_icon(APP_ID)
             .developer_name("Sugarycandybar")
             .version(APP_VERSION)
-            .comments(&t("Create and manage network tunnels."))
+            .comments(t("Create and manage network tunnels."))
             .issue_url(format!("{APP_WEBSITE}/issues"))
             .license_type(gtk::License::Gpl30)
             .build();
@@ -317,7 +317,7 @@ struct PreferencesDialog {
 impl PreferencesDialog {
     fn new() -> Self {
         let dialog = adw::Dialog::builder()
-            .title(&t("Preferences"))
+            .title(t("Preferences"))
             .content_width(400)
             .build();
         let toast_overlay = adw::ToastOverlay::new();
@@ -485,7 +485,11 @@ impl PreferencesDialog {
                         set_switch_active(&switch_clone, start_on_login);
                         *updating.borrow_mut() = false;
                         if state && !start_on_login && !message.is_empty() {
-                            show_error_for_widget(&switch_clone, &t("Startup Permission"), &message);
+                            show_error_for_widget(
+                                &switch_clone,
+                                &t("Startup Permission"),
+                                &message,
+                            );
                         }
                         settings.borrow().save();
                     },
@@ -500,12 +504,16 @@ impl PreferencesDialog {
 
         let lang_codes = ["", "en", "pl"];
         let lang_names = [t("System Language"), t("English"), t("Polski")];
-        let lang_model = gtk::StringList::new(&lang_names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        let lang_model =
+            gtk::StringList::new(&lang_names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
         let lang_row = adw::ComboRow::new();
         lang_row.set_title(&t("App Language"));
         lang_row.set_model(Some(&lang_model));
         let current_lang = settings.borrow().get_string("language");
-        let current_idx = lang_codes.iter().position(|&c| c == current_lang).unwrap_or(0);
+        let current_idx = lang_codes
+            .iter()
+            .position(|&c| c == current_lang)
+            .unwrap_or(0);
         lang_row.set_selected(current_idx as u32);
         lang_group.add(&lang_row);
 
@@ -559,7 +567,7 @@ impl PlayitAgentRow {
         row.add_suffix(&suffix_box);
 
         let autostart_row = adw::ActionRow::new();
-            autostart_row.set_title(&t("Start on Carabiner Launch"));
+        autostart_row.set_title(&t("Start on Carabiner Launch"));
         let autostart_switch = gtk::Switch::new();
         autostart_switch.set_valign(gtk::Align::Center);
         set_switch_active(
@@ -730,7 +738,7 @@ impl TunnelRow {
         let main_copy_btn = gtk::Button::builder()
             .icon_name("edit-copy-symbolic")
             .valign(gtk::Align::Center)
-            .tooltip_text(&t("Copy tunnel link"))
+            .tooltip_text(t("Copy tunnel link"))
             .build();
         main_copy_btn.add_css_class("flat");
         suffix_box.append(&main_copy_btn);
@@ -758,7 +766,7 @@ impl TunnelRow {
 
         if config.borrow().provider != "Playit" {
             let autostart_row = adw::ActionRow::new();
-        autostart_row.set_title(&t("Start on Carabiner Launch"));
+            autostart_row.set_title(&t("Start on Carabiner Launch"));
             let autostart_switch = gtk::Switch::new();
             autostart_switch.set_valign(gtk::Align::Center);
             set_switch_active(&autostart_switch, config.borrow().autostart);
@@ -949,8 +957,12 @@ impl TunnelRow {
                     label
                 };
                 let dialog = adw::AlertDialog::builder()
-                    .heading(format!("{} \"{}\"?", t("Are you sure you want to delete"), name))
-                    .body(&t("This will permanently remove the tunnel."))
+                    .heading(format!(
+                        "{} \"{}\"?",
+                        t("Are you sure you want to delete"),
+                        name
+                    ))
+                    .body(t("This will permanently remove the tunnel."))
                     .build();
                 dialog.add_response("cancel", &t("Cancel"));
                 dialog.add_response("delete", &t("Delete"));
@@ -1059,7 +1071,9 @@ impl TunnelRowRefs {
             }
             let mut msg = msg.trim().to_string();
             if msg.contains("ERR_NGROK_8013") {
-                msg = t("Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will not be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>");
+                msg = t(
+                    "Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will not be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>",
+                );
             }
             if !*self.error_open.borrow() {
                 *self.error_open.borrow_mut() = true;
@@ -1191,7 +1205,7 @@ impl TunnelRowRefs {
                 }
                 *refs.is_cycling_hostname.borrow_mut() = true;
                 if let Some(row) = refs.info_url_row.borrow().as_ref() {
-                row.set_subtitle(&t("Creating..."));
+                    row.set_subtitle(&t("Creating..."));
                 }
                 cycle_row.set_subtitle(&t("Cycling..."));
                 btn.set_sensitive(false);
@@ -1241,7 +1255,7 @@ impl TunnelRowRefs {
                     }
                     if let Some(row) = refs_done.info_url_row.borrow().as_ref() {
                         if refs_done.public_url.borrow().is_empty() {
-                row.set_subtitle(&t("Not available"));
+                            row.set_subtitle(&t("Not available"));
                         } else {
                             row.set_subtitle(&refs_done.public_url.borrow());
                         }
@@ -1379,12 +1393,14 @@ fn setup_download_page(
     on_complete: Rc<dyn Fn()>,
 ) -> adw::NavigationPage {
     let toolbar = adw::ToolbarView::new();
-        let page = adw::NavigationPage::new(&toolbar, &t("Download Binary"));
+    let page = adw::NavigationPage::new(&toolbar, &t("Download Binary"));
     toolbar.add_top_bar(&adw::HeaderBar::new());
 
     let status = adw::StatusPage::new();
     status.set_title(&t("Downloading {provider}").replace("{provider}", provider));
-    status.set_description(Some(&t("Please wait while {provider} is being downloaded...").replace("{provider}", provider)));
+    status.set_description(Some(
+        &t("Please wait while {provider} is being downloaded...").replace("{provider}", provider),
+    ));
 
     let progress_bar = gtk::ProgressBar::new();
     progress_bar.set_show_text(true);
@@ -1593,7 +1609,11 @@ fn setup_ngrok_auth_page(
                 btn.set_sensitive(true);
                 token_entry.set_sensitive(true);
                 btn.set_label(&t("Save & Continue"));
-                show_error_for_widget(&btn, &t("Error"), &format!("{} {msg}", t("Failed to set token")));
+                show_error_for_widget(
+                    &btn,
+                    &t("Error"),
+                    &format!("{} {msg}", t("Failed to set token")),
+                );
             }
         });
     });
