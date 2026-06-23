@@ -1,6 +1,7 @@
 use crate::{
     managers::{get_manager_for_tunnel, get_shared_playit_manager},
     portal::set_background_status,
+    util::t,
     settings::load_settings,
     tunnel_store::{load_tunnels, managers_snapshot},
 };
@@ -54,10 +55,8 @@ where
 {
     thread::spawn(move || {
         let started = start_items();
-        if started == 1 {
-            set_background_status("1 tunnel running");
-        } else if started > 1 {
-            set_background_status(&format!("{started} tunnels running"));
+        if started > 0 {
+            set_background_status(&format!("{} {}", started, t("tunnels running")));
         }
 
         if let Some(callback) = callback {

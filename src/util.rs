@@ -1,4 +1,5 @@
 use crate::constants::home_dir;
+use gettextrs::gettext;
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
@@ -8,6 +9,10 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+pub fn t(msgid: &str) -> String {
+    gettext(msgid)
+}
 
 pub fn platform_name() -> String {
     if cfg!(target_os = "windows") {

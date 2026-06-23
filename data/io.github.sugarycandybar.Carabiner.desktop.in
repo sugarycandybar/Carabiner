@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Carabiner
-Comment=Create and manage secure network tunnels
+Comment=Create and manage network tunnels
 Exec=carabiner
 Icon=io.github.sugarycandybar.Carabiner
 Terminal=false

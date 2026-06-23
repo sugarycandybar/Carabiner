@@ -1,6 +1,7 @@
 use crate::{
     constants::{APP_ID, APP_NAME, APP_VERSION, APP_WEBSITE},
     events::ManagerEvent,
+    util::t,
     managers::{
         ManagerHandle, get_manager_for_tunnel, get_provider_manager, get_shared_playit_manager,
         ngrok::NgrokManager, playit::PlayitManager,
@@ -32,7 +33,7 @@ fn show_message(parent: Option<&gtk::Window>, title: &str, body: &str) {
         .body(body)
         .body_use_markup(true)
         .build();
-    dialog.add_response("ok", "Close");
+    dialog.add_response("ok", &t("Close"));
     dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
     dialog.connect_response(Some("ok"), |dialog, _| {
         dialog.close();
@@ -71,7 +72,7 @@ impl CarabinerWindow {
             .application(app)
             .default_width(420)
             .default_height(560)
-            .title("Carabiner")
+            .title(&t("Carabiner"))
             .build();
 
         let toast_overlay = adw::ToastOverlay::new();
@@ -84,20 +85,20 @@ impl CarabinerWindow {
 
         let add_btn = gtk::Button::builder()
             .icon_name("list-add-symbolic")
-            .tooltip_text("Add Tunnel")
+            .tooltip_text(&t("Add Tunnel"))
             .build();
         header.pack_start(&add_btn);
 
         let menu_btn = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
-            .tooltip_text("Main Menu")
+            .tooltip_text(&t("Main Menu"))
             .build();
         header.pack_end(&menu_btn);
 
         let menu = gio::Menu::new();
-        menu.append(Some("Preferences"), Some("win.preferences"));
-        menu.append(Some("Keyboard Shortcuts"), Some("win.show-shortcuts"));
-        menu.append(Some("About Carabiner"), Some("win.about"));
+        menu.append(Some(&t("_Preferences")), Some("win.preferences"));
+        menu.append(Some(&t("_Keyboard Shortcuts")), Some("win.show-shortcuts"));
+        menu.append(Some(&t("_About Carabiner")), Some("win.about"));
         menu_btn.set_menu_model(Some(&menu));
 
         let menu_action = gio::SimpleAction::new("menu", None);
@@ -194,7 +195,7 @@ impl CarabinerWindow {
     fn on_close_request(&self) -> bool {
         if load_settings().get_bool("run_in_background") && !*self.quit_requested.borrow() {
             self.window.set_visible(false);
-            set_background_status("Carabiner running");
+            set_background_status(&t("Carabiner running"));
             return true;
         }
 
@@ -213,19 +214,19 @@ impl CarabinerWindow {
 
     fn show_about(&self) {
         let about = adw::AboutDialog::builder()
-            .application_name(APP_NAME)
+            .application_name(&t(APP_NAME))
             .application_icon(APP_ID)
             .developer_name("Sugarycandybar")
             .version(APP_VERSION)
-            .comments("Create and manage secure network tunnels.")
+            .comments(&t("Create and manage network tunnels."))
             .issue_url(format!("{APP_WEBSITE}/issues"))
             .license_type(gtk::License::Gpl30)
             .build();
 
-        about.add_link("Website", APP_WEBSITE);
+        about.add_link(&t("Website"), APP_WEBSITE);
 
         about.add_acknowledgement_section(
-            Some("Tunnel Services"),
+            Some(&t("Tunnel Services")),
             &[
                 "playit https://playit.gg",
                 "ngrok https://ngrok.com",
@@ -236,13 +237,13 @@ impl CarabinerWindow {
         about.add_other_app(
             "io.github.sugarycandybar.Hosty",
             "Hosty",
-            "Host Minecraft servers",
+            &t("Host Minecraft servers"),
         );
 
         about.add_other_app(
             "io.github.sugarycandybar.Crucible",
             "Crucible",
-            "View specs and stress test hardware",
+            &t("View specs and stress test hardware"),
         );
 
         about.present(Some(&self.window));
@@ -256,13 +257,13 @@ impl CarabinerWindow {
         let tunnels = load_tunnels();
         if tunnels.is_empty() {
             let status_page = adw::StatusPage::new();
-            status_page.set_title("No Tunnels");
-            status_page.set_description(Some(
+            status_page.set_title(&t("No Tunnels"));
+            status_page.set_description(Some(&t(
                 "Create a network tunnel to securely share local ports.",
-            ));
+            )));
             status_page.set_icon_name(Some("network-server-symbolic"));
 
-            let btn = gtk::Button::with_label("Add Tunnel");
+            let btn = gtk::Button::with_label(&t("Add Tunnel"));
             btn.add_css_class("suggested-action");
             btn.add_css_class("pill");
             btn.set_halign(gtk::Align::Center);
@@ -316,25 +317,28 @@ struct PreferencesDialog {
 impl PreferencesDialog {
     fn new() -> Self {
         let dialog = adw::Dialog::builder()
-            .title("Preferences")
+            .title(&t("Preferences"))
             .content_width(400)
             .build();
+        let toast_overlay = adw::ToastOverlay::new();
+        dialog.set_child(Some(&toast_overlay));
         let settings = Rc::new(RefCell::new(load_settings()));
         let updating_startup_switches = Rc::new(RefCell::new(false));
 
         let toolbar_view = adw::ToolbarView::new();
         let header = adw::HeaderBar::new();
-        header.set_title_widget(Some(&adw::WindowTitle::new("Preferences", "")));
+        header.set_title_widget(Some(&adw::WindowTitle::new(&t("Preferences"), "")));
         toolbar_view.add_top_bar(&header);
+        toast_overlay.set_child(Some(&toolbar_view));
 
         let page = adw::PreferencesPage::new();
 
         let group = adw::PreferencesGroup::new();
-        group.set_title("Tunnel Tokens");
+        group.set_title(&t("Tunnel Tokens"));
         page.add(&group);
 
         let playit_row = adw::EntryRow::new();
-        playit_row.set_title("Playit Token");
+        playit_row.set_title(&t("Playit Token"));
         playit_row.set_text(&settings.borrow().get_string("playit_token"));
         playit_row.set_show_apply_button(true);
         {
@@ -349,7 +353,7 @@ impl PreferencesDialog {
         group.add(&playit_row);
 
         let ngrok_row = adw::EntryRow::new();
-        ngrok_row.set_title("Ngrok Token");
+        ngrok_row.set_title(&t("Ngrok Token"));
         ngrok_row.set_text(&settings.borrow().get_string("ngrok_token"));
         ngrok_row.set_show_apply_button(true);
         {
@@ -364,11 +368,11 @@ impl PreferencesDialog {
         group.add(&ngrok_row);
 
         let startup_group = adw::PreferencesGroup::new();
-        startup_group.set_title("Startup");
+        startup_group.set_title(&t("Startup"));
         page.add(&startup_group);
 
         let background_row = adw::ActionRow::new();
-        background_row.set_title("Run in Background");
+        background_row.set_title(&t("Run in Background"));
         let background_switch = gtk::Switch::new();
         background_switch.set_valign(gtk::Align::Center);
         set_switch_active(
@@ -380,7 +384,7 @@ impl PreferencesDialog {
         startup_group.add(&background_row);
 
         let login_row = adw::ActionRow::new();
-        login_row.set_title("Start on Login");
+        login_row.set_title(&t("Start on Login"));
         let login_switch = gtk::Switch::new();
         login_switch.set_valign(gtk::Align::Center);
         set_switch_active(&login_switch, settings.borrow().get_bool("start_on_login"));
@@ -432,7 +436,7 @@ impl PreferencesDialog {
                             if !message.is_empty() {
                                 show_error_for_widget(
                                     &switch_clone,
-                                    "Background Permission",
+                                    &t("Background Permission"),
                                     &message,
                                 );
                             }
@@ -481,7 +485,7 @@ impl PreferencesDialog {
                         set_switch_active(&switch_clone, start_on_login);
                         *updating.borrow_mut() = false;
                         if state && !start_on_login && !message.is_empty() {
-                            show_error_for_widget(&switch_clone, "Startup Permission", &message);
+                            show_error_for_widget(&switch_clone, &t("Startup Permission"), &message);
                         }
                         settings.borrow().save();
                     },
@@ -490,8 +494,36 @@ impl PreferencesDialog {
             });
         }
 
+        let lang_group = adw::PreferencesGroup::new();
+        lang_group.set_title(&t("Language"));
+        page.add(&lang_group);
+
+        let lang_codes = ["", "en", "pl"];
+        let lang_names = [t("System Language"), t("English"), t("Polski")];
+        let lang_model = gtk::StringList::new(&lang_names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        let lang_row = adw::ComboRow::new();
+        lang_row.set_title(&t("App Language"));
+        lang_row.set_model(Some(&lang_model));
+        let current_lang = settings.borrow().get_string("language");
+        let current_idx = lang_codes.iter().position(|&c| c == current_lang).unwrap_or(0);
+        lang_row.set_selected(current_idx as u32);
+        lang_group.add(&lang_row);
+
+        {
+            let toast_overlay = toast_overlay.clone();
+            lang_row.connect_selected_notify(move |row| {
+                let idx = row.selected() as usize;
+                if idx < lang_codes.len() {
+                    let code = lang_codes[idx];
+                    let mut s = load_settings();
+                    s.set_string("language", code);
+                    s.save();
+                    add_toast(&toast_overlay, &t("Language changed. Restart to apply."));
+                }
+            });
+        }
+
         toolbar_view.set_content(Some(&page));
-        dialog.set_child(Some(&toolbar_view));
 
         Self { dialog }
     }
@@ -509,8 +541,8 @@ impl PlayitAgentRow {
     fn new(toast_overlay: &adw::ToastOverlay) -> Self {
         let manager = get_shared_playit_manager();
         let row = adw::ExpanderRow::new();
-        row.set_title("Playit Agent");
-        row.set_subtitle("Stopped");
+        row.set_title(&t("Playit Agent"));
+        row.set_subtitle(&t("Stopped"));
 
         let suffix_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         suffix_box.set_valign(gtk::Align::Center);
@@ -527,7 +559,7 @@ impl PlayitAgentRow {
         row.add_suffix(&suffix_box);
 
         let autostart_row = adw::ActionRow::new();
-        autostart_row.set_title("Start on Carabiner Launch");
+            autostart_row.set_title(&t("Start on Carabiner Launch"));
         let autostart_switch = gtk::Switch::new();
         autostart_switch.set_valign(gtk::Align::Center);
         set_switch_active(
@@ -551,7 +583,7 @@ impl PlayitAgentRow {
                 if !ok {
                     if !*error_open.borrow() {
                         *error_open.borrow_mut() = true;
-                        show_error_for_widget(&row, "Agent Error", &msg);
+                        show_error_for_widget(&row, &t("Agent Error"), &msg);
                         *error_open.borrow_mut() = false;
                     }
                     Self::update_status(&row, &spinner, &switch, &error_open, "stopped");
@@ -612,7 +644,7 @@ impl PlayitAgentRow {
                     {
                         *error_open.borrow_mut() = true;
                         show_error_for_widget(&row, "Agent Error", msg.trim());
-                        add_toast(&toast_overlay, "Agent Error");
+                        add_toast(&toast_overlay, &t("Agent Error"));
                         *error_open.borrow_mut() = false;
                     }
                 }
@@ -639,16 +671,16 @@ impl PlayitAgentRow {
             spinner.stop();
         }
         if status == "running" {
-            row.set_subtitle("Running");
+            row.set_subtitle(&t("Running"));
             set_switch_active(switch, true);
         } else if status == "stopped" {
-            row.set_subtitle("Stopped");
+            row.set_subtitle(&t("Stopped"));
             set_switch_active(switch, false);
         } else if status.starts_with("error:") {
-            row.set_subtitle("Error");
+            row.set_subtitle(&t("Error"));
             set_switch_active(switch, false);
         } else if status == "starting" {
-            row.set_subtitle("Starting...");
+            row.set_subtitle(&t("Starting..."));
         } else {
             row.set_subtitle(&format!("{}...", capitalize(status)));
         }
@@ -670,7 +702,7 @@ impl TunnelRow {
             label
         };
         row.set_title(&title);
-        row.set_subtitle("Stopped");
+        row.set_subtitle(&t("Stopped"));
 
         let public_url = Rc::new(RefCell::new({
             let endpoint = manager.public_endpoint();
@@ -698,7 +730,7 @@ impl TunnelRow {
         let main_copy_btn = gtk::Button::builder()
             .icon_name("edit-copy-symbolic")
             .valign(gtk::Align::Center)
-            .tooltip_text("Copy tunnel link")
+            .tooltip_text(&t("Copy tunnel link"))
             .build();
         main_copy_btn.add_css_class("flat");
         suffix_box.append(&main_copy_btn);
@@ -714,7 +746,7 @@ impl TunnelRow {
         let (start_tx, start_rx) = unbounded::<(bool, String)>();
 
         let info_row = adw::ActionRow::new();
-        info_row.set_title("Tunnel Info");
+        info_row.set_title(&t("Tunnel Info"));
         info_row.set_activatable(true);
         let info_btn = gtk::Button::builder()
             .icon_name("dialog-information-symbolic")
@@ -726,7 +758,7 @@ impl TunnelRow {
 
         if config.borrow().provider != "Playit" {
             let autostart_row = adw::ActionRow::new();
-            autostart_row.set_title("Start on Carabiner Launch");
+        autostart_row.set_title(&t("Start on Carabiner Launch"));
             let autostart_switch = gtk::Switch::new();
             autostart_switch.set_valign(gtk::Align::Center);
             set_switch_active(&autostart_switch, config.borrow().autostart);
@@ -744,7 +776,7 @@ impl TunnelRow {
         }
 
         let delete_row = adw::ActionRow::new();
-        delete_row.set_title("Delete Tunnel");
+        delete_row.set_title(&t("Delete Tunnel"));
         let delete_btn = gtk::Button::builder()
             .icon_name("user-trash-symbolic")
             .valign(gtk::Align::Center)
@@ -767,7 +799,7 @@ impl TunnelRow {
                             .content()
                             .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
                     {
-                        add_toast(&overlay, "Copied to clipboard");
+                        add_toast(&overlay, &t("Copied to clipboard"));
                     }
                 }
             });
@@ -841,7 +873,7 @@ impl TunnelRow {
             let refs = refs.clone();
             drain_receiver(start_rx, move |(ok, msg)| {
                 if !ok {
-                    show_error_for_widget(&refs.row, "Error", &msg);
+                    show_error_for_widget(&refs.row, &t("Error"), &msg);
                     refs.update_status_ui("stopped");
                 }
             });
@@ -917,11 +949,11 @@ impl TunnelRow {
                     label
                 };
                 let dialog = adw::AlertDialog::builder()
-                    .heading(format!("Are you sure you want to delete \"{name}\"?"))
-                    .body("This will permanently remove the tunnel.")
+                    .heading(format!("{} \"{}\"?", t("Are you sure you want to delete"), name))
+                    .body(&t("This will permanently remove the tunnel."))
                     .build();
-                dialog.add_response("cancel", "Cancel");
-                dialog.add_response("delete", "Delete");
+                dialog.add_response("cancel", &t("Cancel"));
+                dialog.add_response("delete", &t("Delete"));
                 dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
                 dialog.set_default_response(Some("cancel"));
                 dialog.set_close_response("cancel");
@@ -930,7 +962,7 @@ impl TunnelRow {
                 dialog.connect_response(Some("delete"), move |dialog, _| {
                     remove_tunnel(&config.borrow().id);
                     dialog.close();
-                    on_delete(Some("Tunnel deleted".to_string()));
+                    on_delete(Some(t("Tunnel deleted")));
                 });
                 dialog.connect_response(Some("cancel"), |dialog, _| {
                     dialog.close();
@@ -998,15 +1030,15 @@ impl TunnelRowRefs {
 
         if display_text.is_empty() {
             display_text = if status == "running" {
-                "Running".to_string()
+                t("Running")
             } else if status == "stopped" {
-                "Stopped".to_string()
+                t("Stopped")
             } else if status.starts_with("error:") {
-                "Error".to_string()
+                t("Error")
             } else if status == "starting" {
-                "Starting...".to_string()
+                t("Starting...")
             } else if status == "creating" {
-                "Creating tunnel...".to_string()
+                t("Creating tunnel...")
             } else {
                 format!("{}...", capitalize(status))
             };
@@ -1027,11 +1059,11 @@ impl TunnelRowRefs {
             }
             let mut msg = msg.trim().to_string();
             if msg.contains("ERR_NGROK_8013") {
-                msg = "Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will not be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>".to_string();
+                msg = t("Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will not be charged.\n\n<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>");
             }
             if !*self.error_open.borrow() {
                 *self.error_open.borrow_mut() = true;
-                show_error_for_widget(&self.row, "Tunnel Error", &msg);
+                show_error_for_widget(&self.row, &t("Tunnel Error"), &msg);
                 *self.error_open.borrow_mut() = false;
             }
         }
@@ -1044,9 +1076,9 @@ impl TunnelRowRefs {
 
         if let Some(row) = self.info_url_row.borrow().as_ref() {
             if *self.is_cycling_hostname.borrow() {
-                row.set_subtitle("Creating...");
+                row.set_subtitle(&t("Creating..."));
             } else if self.public_url.borrow().is_empty() {
-                row.set_subtitle("Not available");
+                row.set_subtitle(&t("Not available"));
             } else {
                 row.set_subtitle(&self.public_url.borrow());
             }
@@ -1071,7 +1103,7 @@ impl TunnelRowRefs {
         let toolbar = adw::ToolbarView::new();
         toast_overlay.set_child(Some(&toolbar));
         let header = adw::HeaderBar::new();
-        header.set_title_widget(Some(&adw::WindowTitle::new("Tunnel Info", "")));
+        header.set_title_widget(Some(&adw::WindowTitle::new(&t("Tunnel Info"), "")));
         toolbar.add_top_bar(&header);
         let page = adw::PreferencesPage::new();
         toolbar.set_content(Some(&page));
@@ -1079,7 +1111,7 @@ impl TunnelRowRefs {
         page.add(&group);
 
         let local_port_row = adw::ActionRow::new();
-        local_port_row.set_title("Local Port");
+        local_port_row.set_title(&t("Local Port"));
         local_port_row.set_subtitle(&format!(
             "Port {} • {}",
             self.config.borrow().port,
@@ -1088,24 +1120,25 @@ impl TunnelRowRefs {
         group.add(&local_port_row);
 
         let provider_row = adw::ActionRow::new();
-        provider_row.set_title("Provider");
+        provider_row.set_title(&t("Provider"));
         provider_row.set_subtitle(&self.config.borrow().provider);
         group.add(&provider_row);
 
         let info_url_row = adw::ActionRow::new();
-        info_url_row.set_title("Public URL");
+        info_url_row.set_title(&t("Public URL"));
         let public_url_subtitle = self.public_url.borrow().clone();
-        info_url_row.set_subtitle(if public_url_subtitle.is_empty() {
-            "Not available"
+        let subtitle = if public_url_subtitle.is_empty() {
+            t("Not available")
         } else {
-            &public_url_subtitle
-        });
+            public_url_subtitle
+        };
+        info_url_row.set_subtitle(&subtitle);
         info_url_row.set_selectable(true);
         group.add(&info_url_row);
         *self.info_url_row.borrow_mut() = Some(info_url_row.clone());
 
         let label_row = adw::EntryRow::new();
-        label_row.set_title("Label");
+        label_row.set_title(&t("Label"));
         label_row.set_text(&self.config.borrow().label);
         label_row.set_show_apply_button(true);
         {
@@ -1131,7 +1164,7 @@ impl TunnelRowRefs {
                         .content()
                         .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
                 {
-                    add_toast(&overlay, "Label updated");
+                    add_toast(&overlay, &t("Label updated"));
                 }
             });
         }
@@ -1139,8 +1172,8 @@ impl TunnelRowRefs {
 
         if self.config.borrow().provider == "Playit" {
             let cycle_row = adw::ActionRow::new();
-            cycle_row.set_title("Cycle Hostname");
-            cycle_row.set_subtitle("Get a new public link");
+            cycle_row.set_title(&t("Cycle Hostname"));
+            cycle_row.set_subtitle(&t("Get a new public link"));
             let cycle_btn = gtk::Button::builder()
                 .icon_name("view-refresh-symbolic")
                 .valign(gtk::Align::Center)
@@ -1158,9 +1191,9 @@ impl TunnelRowRefs {
                 }
                 *refs.is_cycling_hostname.borrow_mut() = true;
                 if let Some(row) = refs.info_url_row.borrow().as_ref() {
-                    row.set_subtitle("Creating...");
+                row.set_subtitle(&t("Creating..."));
                 }
-                cycle_row.set_subtitle("Cycling...");
+                cycle_row.set_subtitle(&t("Cycling..."));
                 btn.set_sensitive(false);
 
                 let (tx, rx) = unbounded();
@@ -1208,14 +1241,14 @@ impl TunnelRowRefs {
                     }
                     if let Some(row) = refs_done.info_url_row.borrow().as_ref() {
                         if refs_done.public_url.borrow().is_empty() {
-                            row.set_subtitle("Not available");
+                row.set_subtitle(&t("Not available"));
                         } else {
                             row.set_subtitle(&refs_done.public_url.borrow());
                         }
                     }
-                    cycle_row_done.set_subtitle("Get a new public link");
+                    cycle_row_done.set_subtitle(&t("Get a new public link"));
                     btn_done.set_sensitive(true);
-                    add_toast(&toast_overlay, "Tunnel hostname cycled");
+                    add_toast(&toast_overlay, &t("Tunnel hostname cycled"));
                 });
             });
         }
@@ -1261,14 +1294,14 @@ impl SetupProviderPage {
         on_saved: Rc<dyn Fn(Option<String>)>,
     ) -> adw::NavigationPage {
         let toolbar_view = adw::ToolbarView::new();
-        let page = adw::NavigationPage::new(&toolbar_view, "Add Tunnel");
+        let page = adw::NavigationPage::new(&toolbar_view, &t("Add Tunnel"));
         let header = adw::HeaderBar::new();
         toolbar_view.add_top_bar(&header);
 
         let original_page = adw::PreferencesPage::new();
         toolbar_view.set_content(Some(&original_page));
         let group = adw::PreferencesGroup::new();
-        group.set_title("Select Provider");
+        group.set_title(&t("Select Provider"));
         original_page.add(&group);
 
         let providers = ["Cloudflare", "Ngrok", "Playit"];
@@ -1346,14 +1379,12 @@ fn setup_download_page(
     on_complete: Rc<dyn Fn()>,
 ) -> adw::NavigationPage {
     let toolbar = adw::ToolbarView::new();
-    let page = adw::NavigationPage::new(&toolbar, "Download Binary");
+        let page = adw::NavigationPage::new(&toolbar, &t("Download Binary"));
     toolbar.add_top_bar(&adw::HeaderBar::new());
 
     let status = adw::StatusPage::new();
-    status.set_title(&format!("Downloading {provider}"));
-    status.set_description(Some(&format!(
-        "Please wait while {provider} is being downloaded..."
-    )));
+    status.set_title(&t("Downloading {provider}").replace("{provider}", provider));
+    status.set_description(Some(&t("Please wait while {provider} is being downloaded...").replace("{provider}", provider)));
 
     let progress_bar = gtk::ProgressBar::new();
     progress_bar.set_show_text(true);
@@ -1409,7 +1440,7 @@ fn setup_download_page(
         if ok {
             on_complete();
         } else {
-            show_error_for_widget(&nav_view, "Download Failed", &msg);
+            show_error_for_widget(&nav_view, &t("Download Failed"), &msg);
         }
     });
 
@@ -1418,21 +1449,21 @@ fn setup_download_page(
 
 fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> adw::NavigationPage {
     let toolbar_view = adw::ToolbarView::new();
-    let page = adw::NavigationPage::new(&toolbar_view, "Tunnel Details");
+    let page = adw::NavigationPage::new(&toolbar_view, &t("Tunnel Details"));
     let header = adw::HeaderBar::new();
     toolbar_view.add_top_bar(&header);
     let prefs = adw::PreferencesPage::new();
     toolbar_view.set_content(Some(&prefs));
     let group = adw::PreferencesGroup::new();
-    group.set_title(&format!("{provider} Settings"));
+    group.set_title(&t("{provider} Settings").replace("{provider}", provider));
     prefs.add(&group);
 
     let label_row = adw::EntryRow::new();
-    label_row.set_title("Label (optional)");
+    label_row.set_title(&t("Label (optional)"));
     group.add(&label_row);
 
     let protocol_row = adw::ComboRow::new();
-    protocol_row.set_title("Protocol");
+    protocol_row.set_title(&t("Protocol"));
     let protocol_model = if provider == "Playit" {
         gtk::StringList::new(&["TCP", "UDP"])
     } else if provider == "Ngrok" {
@@ -1447,7 +1478,7 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
     group.add(&protocol_row);
 
     let port_row = adw::ActionRow::new();
-    port_row.set_title("Local Port");
+    port_row.set_title(&t("Local Port"));
     let port_spin = gtk::SpinButton::with_range(1.0, 65535.0, 1.0);
     let initial_protocol = protocol_model
         .string(protocol_row.selected())
@@ -1482,7 +1513,7 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
 
     let btn_group = adw::PreferencesGroup::new();
     prefs.add(&btn_group);
-    let save_btn = gtk::Button::with_label("Save Tunnel");
+    let save_btn = gtk::Button::with_label(&t("Save Tunnel"));
     save_btn.add_css_class("suggested-action");
     save_btn.add_css_class("pill");
     save_btn.set_margin_top(24);
@@ -1497,7 +1528,7 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             .unwrap_or_else(|| "TCP".to_string());
         let label = label_row.text().trim().to_string();
         add_tunnel(&provider, &protocol, port, &label);
-        on_saved(Some("Tunnel created".to_string()));
+        on_saved(Some(t("Tunnel created")));
     });
 
     page
@@ -1508,28 +1539,28 @@ fn setup_ngrok_auth_page(
     next_step: Rc<dyn Fn()>,
 ) -> adw::NavigationPage {
     let toolbar = adw::ToolbarView::new();
-    let page = adw::NavigationPage::new(&toolbar, "Ngrok Setup");
+    let page = adw::NavigationPage::new(&toolbar, &t("Ngrok Setup"));
     toolbar.add_top_bar(&adw::HeaderBar::new());
     let prefs = adw::PreferencesPage::new();
     toolbar.set_content(Some(&prefs));
     let group = adw::PreferencesGroup::new();
-    group.set_title("Auth Token");
-    group.set_description(Some(
+    group.set_title(&t("Auth Token"));
+    group.set_description(Some(&t(
         "Get your Ngrok Auth Token and paste it here. You only need to do this once.",
-    ));
+    )));
     prefs.add(&group);
     let link = gtk::LinkButton::with_label(
         "https://dashboard.ngrok.com/get-started/your-authtoken",
-        "Get Ngrok Auth Token",
+        &t("Get Ngrok Auth Token"),
     );
     link.set_margin_bottom(16);
     group.add(&link);
     let token_entry = adw::EntryRow::new();
-    token_entry.set_title("Token");
+    token_entry.set_title(&t("Token"));
     group.add(&token_entry);
     let btn_group = adw::PreferencesGroup::new();
     prefs.add(&btn_group);
-    let save_btn = gtk::Button::with_label("Save & Continue");
+    let save_btn = gtk::Button::with_label(&t("Save & Continue"));
     save_btn.add_css_class("suggested-action");
     save_btn.add_css_class("pill");
     save_btn.set_margin_top(12);
@@ -1541,7 +1572,7 @@ fn setup_ngrok_auth_page(
             return;
         }
         btn.set_sensitive(false);
-        btn.set_label("Saving...");
+        btn.set_label(&t("Saving..."));
         token_entry.set_sensitive(false);
 
         let (tx, rx) = unbounded();
@@ -1561,8 +1592,8 @@ fn setup_ngrok_auth_page(
             } else {
                 btn.set_sensitive(true);
                 token_entry.set_sensitive(true);
-                btn.set_label("Save & Continue");
-                show_error_for_widget(&btn, "Error", &format!("Failed to set token: {msg}"));
+                btn.set_label(&t("Save & Continue"));
+                show_error_for_widget(&btn, &t("Error"), &format!("{} {msg}", t("Failed to set token")));
             }
         });
     });
@@ -1575,12 +1606,12 @@ fn setup_playit_auth_page(
     next_step: Rc<dyn Fn()>,
 ) -> adw::NavigationPage {
     let toolbar = adw::ToolbarView::new();
-    let page = adw::NavigationPage::new(&toolbar, "Playit Setup");
+    let page = adw::NavigationPage::new(&toolbar, &t("Playit Setup"));
     toolbar.add_top_bar(&adw::HeaderBar::new());
 
     let status = adw::StatusPage::new();
-    status.set_title("Checking Playit Account");
-    status.set_description(Some("Please wait..."));
+    status.set_title(&t("Checking Playit Account"));
+    status.set_description(Some(&t("Please wait...")));
     let spinner = gtk::Spinner::new();
     spinner.start();
     spinner.set_size_request(48, 48);
@@ -1621,14 +1652,14 @@ fn build_playit_auth_ui(
     toolbar.set_content(Some(&prefs));
     if is_linked {
         let group = adw::PreferencesGroup::new();
-        group.set_title("Account Linked");
-        group.set_description(Some(
+        group.set_title(&t("Account Linked"));
+        group.set_description(Some(&t(
             "Your Playit account is already linked and ready to go.",
-        ));
+        )));
         prefs.add(&group);
         let btn_group = adw::PreferencesGroup::new();
         prefs.add(&btn_group);
-        let continue_btn = gtk::Button::with_label("Continue");
+        let continue_btn = gtk::Button::with_label(&t("Continue"));
         continue_btn.add_css_class("suggested-action");
         continue_btn.add_css_class("pill");
         {
@@ -1636,7 +1667,7 @@ fn build_playit_auth_ui(
             continue_btn.connect_clicked(move |_| next_step());
         }
         btn_group.add(&continue_btn);
-        let relink_btn = gtk::Button::with_label("Link a Different Account");
+        let relink_btn = gtk::Button::with_label(&t("Link a Different Account"));
         relink_btn.add_css_class("pill");
         relink_btn.set_margin_top(12);
         {
@@ -1650,20 +1681,20 @@ fn build_playit_auth_ui(
     }
 
     let group = adw::PreferencesGroup::new();
-    group.set_title("Link Account");
-    group.set_description(Some(
+    group.set_title(&t("Link Account"));
+    group.set_description(Some(&t(
         "Visit the link below to get your claim code, then paste it here.",
-    ));
+    )));
     prefs.add(&group);
-    let link = gtk::LinkButton::with_label(manager.setup_url(), "Open Playit Setup in Browser");
+    let link = gtk::LinkButton::with_label(manager.setup_url(), &t("Open Playit Setup in Browser"));
     link.set_margin_bottom(16);
     group.add(&link);
     let code_entry = adw::EntryRow::new();
-    code_entry.set_title("Claim Code");
+    code_entry.set_title(&t("Claim Code"));
     group.add(&code_entry);
     let btn_group = adw::PreferencesGroup::new();
     prefs.add(&btn_group);
-    let link_btn = gtk::Button::with_label("Link Account");
+    let link_btn = gtk::Button::with_label(&t("Link Account"));
     link_btn.add_css_class("suggested-action");
     link_btn.add_css_class("pill");
     link_btn.set_margin_top(12);
@@ -1675,7 +1706,7 @@ fn build_playit_auth_ui(
             return;
         }
         btn.set_sensitive(false);
-        btn.set_label("Linking...");
+        btn.set_label(&t("Linking..."));
         code_entry.set_sensitive(false);
         let (tx, rx) = unbounded();
         let manager = manager.clone();
@@ -1694,8 +1725,8 @@ fn build_playit_auth_ui(
             } else {
                 btn.set_sensitive(true);
                 code_entry.set_sensitive(true);
-                btn.set_label("Link Account");
-                show_error_for_widget(&btn, "Link Failed", &msg);
+                btn.set_label(&t("Link Account"));
+                show_error_for_widget(&btn, &t("Link Failed"), &msg);
             }
         });
     });

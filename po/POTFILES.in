@@ -3,4 +3,8 @@
 data/io.github.sugarycandybar.Carabiner.desktop.in
 data/io.github.sugarycandybar.Carabiner.metainfo.xml.in
 data/io.github.sugarycandybar.Carabiner.gschema.xml
+src/portal.rs
+src/shortcuts-dialog.ui
+src/startup.rs
+src/window.rs
 src/window.ui

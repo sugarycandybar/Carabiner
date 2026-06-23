@@ -1,5 +1,6 @@
 #![allow(deprecated)]
 
+use crate::util::t;
 use gtk::{
     gio,
     glib::{self, variant::ToVariant},
@@ -17,7 +18,7 @@ fn background_options(autostart: bool, handle_token: &str) -> HashMap<&'static s
         ("handle_token", handle_token.to_variant()),
         (
             "reason",
-            "Carabiner can keep selected network tunnels running in the background.".to_variant(),
+            t("Carabiner can keep selected network tunnels running in the background.").to_variant(),
         ),
         ("autostart", autostart.to_variant()),
         (
@@ -74,7 +75,7 @@ where
             let Some((response, results)) =
                 parameters.get::<(u32, HashMap<String, glib::Variant>)>()
             else {
-                callback(false, false, false, "Invalid portal response.".to_string());
+                callback(false, false, false, t("Invalid portal response."));
                 return;
             };
 
@@ -83,7 +84,7 @@ where
                     false,
                     false,
                     false,
-                    "Background permission was not granted.".to_string(),
+                    t("Background permission was not granted."),
                 );
                 return;
             }
@@ -145,17 +146,17 @@ where
                         let Some((response, results)) =
                             parameters.get::<(u32, HashMap<String, glib::Variant>)>()
                         else {
-                            callback(false, false, false, "Invalid portal response.".to_string());
+                            callback(false, false, false, t("Invalid portal response."));
                             return;
                         };
                         if response != 0 {
-                            callback(
-                                false,
-                                false,
-                                false,
-                                "Background permission was not granted.".to_string(),
-                            );
-                            return;
+            callback(
+                    false,
+                    false,
+                    false,
+                    t("Background permission was not granted."),
+                );
+                return;
                         }
                         callback(
                             true,

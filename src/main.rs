@@ -17,6 +17,11 @@ use gettextrs::{bind_textdomain_codeset, bindtextdomain, textdomain};
 use gtk::{gio, glib};
 
 fn main() -> glib::ExitCode {
+    let lang = settings::load_settings().get_string("language");
+    if !lang.is_empty() {
+        unsafe { std::env::set_var("LANGUAGE", &lang) };
+    }
+
     bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR).expect("Unable to bind the text domain");
     bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8")
         .expect("Unable to set the text domain encoding");

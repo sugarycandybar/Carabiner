@@ -13,6 +13,7 @@ fn default_map() -> Map<String, Value> {
         ("run_in_background".to_string(), Value::Bool(false)),
         ("start_on_login".to_string(), Value::Bool(false)),
         ("playit_agent_autostart".to_string(), Value::Bool(false)),
+        ("language".to_string(), Value::String(String::new())),
     ])
 }
 
