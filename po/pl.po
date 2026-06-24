@@ -2,493 +2,489 @@
 # Copyright (C) 2026 THE carabiner'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the carabiner package.
 # Automatically generated, 2026.
+# KOXXPL <80292506+KOXXPL@users.noreply.github.com>, 2026.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: carabiner\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-06-22 23:53-0400\n"
-"PO-Revision-Date: 2026-06-22 23:34-0400\n"
-"Last-Translator: Automatically generated\n"
-"Language-Team: none\n"
+"PO-Revision-Date: 2026-06-24 13:20+0200\n"
+"Last-Translator: KOXXPL <80292506+KOXXPL@users.noreply.github.com>\n"
+"Language-Team: Polish\n"
 "Language: pl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
 "|| n%100>=20) ? 1 : 2);\n"
+"X-Generator: Gtranslator 50.0\n"
 
 #: data/io.github.sugarycandybar.Carabiner.desktop.in:2
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:4 src/window.rs:75
 #: src/window.ui:6
 msgid "Carabiner"
-msgstr ""
+msgstr "Karabińczyk"
 
 #: data/io.github.sugarycandybar.Carabiner.desktop.in:3
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:5
 msgid "Create and manage network tunnels"
-msgstr ""
+msgstr "Twórz i zarządzaj tunelami sieciowymi"
 
 #: data/io.github.sugarycandybar.Carabiner.desktop.in:9
 msgid "tunnel;ngrok;playit;secure;network;proxy;"
-msgstr ""
+msgstr "tunel;ngrok;playit;bezpieczyny;sieć;proxy;"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:9
 msgid "Sugarycandybar"
-msgstr ""
+msgstr "Sugarycandybar"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:13
-msgid ""
-"Carabiner is an easy-to-use utility for HTTP, UDP, or TCP services. Share "
-"local web servers, game servers, or other network services."
-msgstr ""
+msgid "Carabiner is an easy-to-use utility for HTTP, UDP, or TCP services. Share local web servers, game servers, or other network services."
+msgstr "Karabińczyk jest łatwym w użyciu narzędziem do HTTP, UDP lub usług TCP. Udostępniaj lokalne serwery, serwery gier lub inne usługi sieciowe."
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:18
 msgid "Ngrok, Playit, and Cloudflare tunnels."
-msgstr ""
+msgstr "Tunele Ngrok, Playit i Cloudflare."
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:19
 msgid "Simple setup wizards for creating new tunnels"
-msgstr ""
+msgstr "Proste kreatory konfiguracji do tworzenia nowych tuneli"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:20
 msgid "Live monitoring of tunnel status and details"
-msgstr ""
+msgstr "Monitorowanie stanu i szczegółów tunelu na żywo"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:21
 msgid "Background service support for persistent tunnels"
-msgstr ""
+msgstr "Obsługa serwisu w tle dla trwałych tuneli"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:36
 msgid "Manage network tunnels"
-msgstr ""
+msgstr "Zarządzaj tunelami sieciowymi"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:40
 msgid "Create new network tunnels"
-msgstr ""
+msgstr "Utwórz nowe tunele sieciowe"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:47
 msgid "Minor UI tweaks, improve tunnel reliability"
-msgstr ""
+msgstr "Drobne ulepszenia interfejsu użytkownika, poprawa niezawodności tunelu"
 
 #: data/io.github.sugarycandybar.Carabiner.metainfo.xml.in:52
 msgid "Initial release"
-msgstr ""
+msgstr "Pierwsze wydanie"
 
 #: src/portal.rs:21
 msgid "Carabiner can keep selected network tunnels running in the background."
-msgstr ""
+msgstr "Karabińczyk może utrzymać działanie wybranych tuneli sieciowych w tle."
 
 #: src/portal.rs:78 src/portal.rs:149
 msgid "Invalid portal response."
-msgstr ""
+msgstr "Nieprawidłowa odpowiedź portalu."
 
 #: src/portal.rs:87 src/portal.rs:157
 msgid "Background permission was not granted."
-msgstr ""
+msgstr "Uprawnienia do działania w tle nie zostały przyznane."
 
 #: src/shortcuts-dialog.ui:8
 msgid "General"
-msgstr ""
+msgstr "Ogólne"
 
 #: src/shortcuts-dialog.ui:11
 msgctxt "shortcut window"
 msgid "Add Tunnel"
-msgstr ""
+msgstr "Dodaj tunel"
 
 #: src/shortcuts-dialog.ui:17
 msgctxt "shortcut window"
 msgid "Open Menu"
-msgstr ""
+msgstr "Otwórz menu"
 
 #: src/shortcuts-dialog.ui:23
 msgctxt "shortcut window"
 msgid "Preferences"
-msgstr ""
+msgstr "Preferencje"
 
 #: src/shortcuts-dialog.ui:29
 msgctxt "shortcut window"
 msgid "Keyboard Shortcuts"
-msgstr ""
+msgstr "Skróty klawiszowe"
 
 #: src/shortcuts-dialog.ui:35
 msgctxt "shortcut window"
 msgid "Close Window"
-msgstr ""
+msgstr "Zamknij okno"
 
 #: src/startup.rs:59
 msgid "tunnels running"
-msgstr ""
+msgstr "Tunele działają"
 
 #: src/window.rs:36
 msgid "Close"
-msgstr ""
+msgstr "Zamknij"
 
 #: src/window.rs:88 src/window.rs:266 src/window.rs:1297 src/window.ui:18
 msgid "Add Tunnel"
-msgstr ""
+msgstr "Dodaj tunel"
 
 #: src/window.rs:94 src/window.ui:25
 msgid "Main Menu"
-msgstr ""
+msgstr "Menu główne"
 
 #: src/window.rs:99 src/window.ui:39
 msgid "_Preferences"
-msgstr ""
+msgstr "_Preferencje"
 
 #: src/window.rs:100 src/window.ui:43
 msgid "_Keyboard Shortcuts"
-msgstr ""
+msgstr "_Skróty klawiszowe"
 
 #: src/window.rs:101 src/window.ui:47
 msgid "_About Carabiner"
-msgstr ""
+msgstr "_O Karabińczyku"
 
 #: src/window.rs:198
 msgid "Carabiner running"
-msgstr ""
+msgstr "Karabińczyk działa"
 
 #: src/window.rs:221
 msgid "Create and manage network tunnels."
-msgstr ""
+msgstr "Twórz i zarządzaj tunelami sieciowymi."
 
 #: src/window.rs:226
 msgid "Website"
-msgstr ""
+msgstr "Strona internetowa"
 
 #: src/window.rs:229
 msgid "Tunnel Services"
-msgstr ""
+msgstr "Usługi tunelowania"
 
 #: src/window.rs:240
 msgid "Host Minecraft servers"
-msgstr ""
+msgstr "Hostuj serwery Minecraft"
 
 #: src/window.rs:246
 msgid "View specs and stress test hardware"
-msgstr ""
+msgstr "Zobacz specyfikację i przetestuj sprzęt"
 
 #: src/window.rs:260
 msgid "No Tunnels"
-msgstr ""
+msgstr "Brak tuneli"
 
 #: src/window.rs:262
 msgid "Create a network tunnel to securely share local ports."
-msgstr ""
+msgstr "Utwórz tunel sieciowy, aby bezpiecznie udostępniać lokalne porty."
 
 #: src/window.rs:320 src/window.rs:330
 msgid "Preferences"
-msgstr ""
+msgstr "Preferencje"
 
 #: src/window.rs:337
 msgid "Tunnel Tokens"
-msgstr ""
+msgstr "Tokeny tuneli"
 
 #: src/window.rs:341
 msgid "Playit Token"
-msgstr ""
+msgstr "Token Playit"
 
 #: src/window.rs:356
 msgid "Ngrok Token"
-msgstr ""
+msgstr "Token Ngrok"
 
 #: src/window.rs:371
 msgid "Startup"
-msgstr ""
+msgstr "Uruchomienie"
 
 #: src/window.rs:375
 msgid "Run in Background"
-msgstr ""
+msgstr "Działaj w tle"
 
 #: src/window.rs:387
 msgid "Start on Login"
-msgstr ""
+msgstr "Uruchom przy logowaniu"
 
 #: src/window.rs:439
 msgid "Background Permission"
-msgstr ""
+msgstr "Uprawnienia do działania w tle"
 
 #: src/window.rs:488
 msgid "Startup Permission"
-msgstr ""
+msgstr "Uprawnienia do uruchomienia"
 
 #: src/window.rs:498
 msgid "Language"
-msgstr ""
+msgstr "Język"
 
 #: src/window.rs:502
 msgid "System Language"
-msgstr ""
+msgstr "Język systemu"
 
 #: src/window.rs:502
 msgid "English"
-msgstr ""
+msgstr "Angielski"
 
 #: src/window.rs:502
 msgid "Polski"
-msgstr ""
+msgstr "Polski"
 
 #: src/window.rs:505
 msgid "App Language"
-msgstr ""
+msgstr "Język aplikacji"
 
 #: src/window.rs:521
 msgid "Language changed. Restart to apply."
-msgstr ""
+msgstr "Język został zmieniony. Uruchom ponownie, aby zastosować."
 
 #: src/window.rs:544
 msgid "Playit Agent"
-msgstr ""
+msgstr "Agent Playit"
 
 #: src/window.rs:545 src/window.rs:677 src/window.rs:705 src/window.rs:1035
 msgid "Stopped"
-msgstr ""
+msgstr "Zatrzymano"
 
 #: src/window.rs:562 src/window.rs:761
 msgid "Start on Carabiner Launch"
-msgstr ""
+msgstr "Uruchom przy starcie Karabińczyka"
 
 #: src/window.rs:586 src/window.rs:647
 msgid "Agent Error"
-msgstr ""
+msgstr "Błąd agenta"
 
 #: src/window.rs:674 src/window.rs:1033
 msgid "Running"
-msgstr ""
+msgstr "Działa"
 
 #: src/window.rs:680 src/window.rs:876 src/window.rs:1037 src/window.rs:1596
 msgid "Error"
-msgstr ""
+msgstr "Błąd"
 
 #: src/window.rs:683 src/window.rs:1039
 msgid "Starting..."
-msgstr ""
+msgstr "Uruchamianie..."
 
 #: src/window.rs:733
 msgid "Copy tunnel link"
-msgstr ""
+msgstr "Kopiuj link tunelu"
 
 #: src/window.rs:749 src/window.rs:1106
 msgid "Tunnel Info"
-msgstr ""
+msgstr "Informacje o tunelu"
 
 #: src/window.rs:779
 msgid "Delete Tunnel"
-msgstr ""
+msgstr "Usuń tunel"
 
 #: src/window.rs:802
 msgid "Copied to clipboard"
-msgstr ""
+msgstr "Skopiowane do schowka"
 
 #: src/window.rs:952
 msgid "Are you sure you want to delete"
-msgstr ""
+msgstr "Czy na pewno chcesz usunąć"
 
 #: src/window.rs:953
 msgid "This will permanently remove the tunnel."
-msgstr ""
+msgstr "To spowoduje trwałe usunięcie tunelu."
 
 #: src/window.rs:955
 msgid "Cancel"
-msgstr ""
+msgstr "Anuluj"
 
 #: src/window.rs:956
 msgid "Delete"
-msgstr ""
+msgstr "Usuń"
 
 #: src/window.rs:965
 msgid "Tunnel deleted"
-msgstr ""
+msgstr "Tunel usunięty"
 
 #: src/window.rs:1041
 msgid "Creating tunnel..."
-msgstr ""
+msgstr "Tworzenie tunelu..."
 
 #: src/window.rs:1062
-msgid ""
-"Ngrok requires a credit or debit card to use TCP endpoints on a free "
-"account. This card will not be charged.\n"
-"\n"
-"<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here "
-"to add a card to your account</a>"
-msgstr ""
+msgid "Ngrok requires a credit or debit card to use TCP endpoints on a free account. This card will not be charged.\n\n"
+"<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Click here to add a card to your account</a>"
+msgstr "Ngrok wymaga karty kredytowej lub debetowej do korzystania z punktów końcowych TCP na darmowym koncie. Ta karta nie zostanie obciążona.\n\n"
+"<a href=\"https://dashboard.ngrok.com/settings#id-verification\">Kliknij tutaj, aby dodać kartę do swojego konta</a>"
 
 #: src/window.rs:1066
 msgid "Tunnel Error"
-msgstr ""
+msgstr "Błąd tunelu"
 
 #: src/window.rs:1079 src/window.rs:1194
 msgid "Creating..."
-msgstr ""
+msgstr "Tworzenie..."
 
 #: src/window.rs:1081 src/window.rs:1131 src/window.rs:1244
 msgid "Not available"
-msgstr ""
+msgstr "Niedostępne"
 
 #: src/window.rs:1114 src/window.rs:1481
 msgid "Local Port"
-msgstr ""
+msgstr "Port lokalny"
 
 #: src/window.rs:1123
 msgid "Provider"
-msgstr ""
+msgstr "Dostawca"
 
 #: src/window.rs:1128
 msgid "Public URL"
-msgstr ""
+msgstr "Publiczny adres URL"
 
 #: src/window.rs:1141
 msgid "Label"
-msgstr ""
+msgstr "Etykieta"
 
 #: src/window.rs:1167
 msgid "Label updated"
-msgstr ""
+msgstr "Etykieta została zaktualizowana"
 
 #: src/window.rs:1175
 msgid "Cycle Hostname"
-msgstr ""
+msgstr "Cykluj nazwę hosta"
 
 #: src/window.rs:1176 src/window.rs:1249
 msgid "Get a new public link"
-msgstr ""
+msgstr "Uzyskaj nowy publiczny link"
 
 #: src/window.rs:1196
 msgid "Cycling..."
-msgstr ""
+msgstr "Cyklowanie..."
 
 #: src/window.rs:1251
 msgid "Tunnel hostname cycled"
-msgstr ""
+msgstr "Nazwa hosta tunelu wycyklowana"
 
 #: src/window.rs:1304
 msgid "Select Provider"
-msgstr ""
+msgstr "Wybierz dostawcę"
 
 #: src/window.rs:1382
 msgid "Download Binary"
-msgstr ""
+msgstr "Pobierz plik binarny"
 
 #: src/window.rs:1386
 #, rust-format
 msgid "Downloading {provider}"
-msgstr ""
+msgstr "Pobieranie {provider}"
 
 #: src/window.rs:1387
 #, rust-format
 msgid "Please wait while {provider} is being downloaded..."
-msgstr ""
+msgstr "Proszę czekać, {provider} jest pobierany..."
 
 #: src/window.rs:1443
 msgid "Download Failed"
-msgstr ""
+msgstr "Pobieranie nieudane"
 
 #: src/window.rs:1452
 msgid "Tunnel Details"
-msgstr ""
+msgstr "Szczegóły tunelu"
 
 #: src/window.rs:1458
 #, rust-format
 msgid "{provider} Settings"
-msgstr ""
+msgstr "Ustawienia {provider}"
 
 #: src/window.rs:1462
 msgid "Label (optional)"
-msgstr ""
+msgstr "Etykieta (opcjonalnie)"
 
 #: src/window.rs:1466
 msgid "Protocol"
-msgstr ""
+msgstr "Protokół"
 
 #: src/window.rs:1516
 msgid "Save Tunnel"
-msgstr ""
+msgstr "Zapisz tunel"
 
 #: src/window.rs:1531
 msgid "Tunnel created"
-msgstr ""
+msgstr "Tunel utworzony"
 
 #: src/window.rs:1542
 msgid "Ngrok Setup"
-msgstr ""
+msgstr "Konfiguracja Ngrok"
 
 #: src/window.rs:1547
 msgid "Auth Token"
-msgstr ""
+msgstr "Token uwierzytelniający"
 
 #: src/window.rs:1549
-msgid ""
-"Get your Ngrok Auth Token and paste it here. You only need to do this once."
-msgstr ""
+msgid "Get your Ngrok Auth Token and paste it here. You only need to do this once."
+msgstr "Zdobądź swój token uwierzytelniania Ngrok i wklej go tutaj. Musisz to zrobić tylko raz."
 
 #: src/window.rs:1554
 msgid "Get Ngrok Auth Token"
-msgstr ""
+msgstr "Zdobądź token uwierzytelniania Ngrok"
 
 #: src/window.rs:1559
 msgid "Token"
-msgstr ""
+msgstr "Token"
 
 #: src/window.rs:1563 src/window.rs:1595
 msgid "Save & Continue"
-msgstr ""
+msgstr "Zapisz i kontynuuj"
 
 #: src/window.rs:1575
 msgid "Saving..."
-msgstr ""
+msgstr "Zapisywanie..."
 
 #: src/window.rs:1596
 msgid "Failed to set token"
-msgstr ""
+msgstr "Nie udało się uzyskać tokenu"
 
 #: src/window.rs:1609
 msgid "Playit Setup"
-msgstr ""
+msgstr "Konfiguracja Playit"
 
 #: src/window.rs:1613
 msgid "Checking Playit Account"
-msgstr ""
+msgstr "Sprawdzanie konta Playit"
 
 #: src/window.rs:1614
 msgid "Please wait..."
-msgstr ""
+msgstr "Proszę czekać..."
 
 #: src/window.rs:1655
 msgid "Account Linked"
-msgstr ""
+msgstr "Konto połączone"
 
 #: src/window.rs:1657
 msgid "Your Playit account is already linked and ready to go."
-msgstr ""
+msgstr "Twoje konto Playit jest już połączone i gotowe do działania."
 
 #: src/window.rs:1662
 msgid "Continue"
-msgstr ""
+msgstr "Kontynuuj"
 
 #: src/window.rs:1670
 msgid "Link a Different Account"
-msgstr ""
+msgstr "Połącz inne konto"
 
 #: src/window.rs:1684 src/window.rs:1697 src/window.rs:1728
 msgid "Link Account"
-msgstr ""
+msgstr "Połącz konto"
 
 #: src/window.rs:1686
 msgid "Visit the link below to get your claim code, then paste it here."
-msgstr ""
+msgstr "Odwiedź poniższy link, aby otrzymać kod i wklej go tutaj."
 
 #: src/window.rs:1689
 msgid "Open Playit Setup in Browser"
-msgstr ""
+msgstr "Otwórz konfigurację Playit w przeglądarce"
 
 #: src/window.rs:1693
 msgid "Claim Code"
-msgstr ""
+msgstr "Odbierz kod"
 
 #: src/window.rs:1709
 msgid "Linking..."
-msgstr ""
+msgstr "Łączenie..."
 
 #: src/window.rs:1729
 msgid "Link Failed"
-msgstr ""
+msgstr "Nie udało się połączyć"
