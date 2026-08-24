@@ -38,10 +38,12 @@ fn start_items() -> usize {
             }
         }
 
-        if manager
-            .start(config.port, &config.protocol.to_lowercase())
-            .0
-        {
+        let ok = if config.provider == "SSH" {
+            manager.start_with_config(&config).0
+        } else {
+            manager.start(config.port, &config.protocol.to_lowercase()).0
+        };
+        if ok {
             started += 1;
         }
     }

@@ -8,8 +8,9 @@ use crate::{
     portal::{request_background, set_background_status},
     settings::{load_settings, save_settings},
     tunnel_store::{
-        TunnelConfig, add_tunnel, load_tunnels, managers_snapshot, remove_tunnel, stop_all_tunnels,
-        update_tunnel_autostart, update_tunnel_label, update_tunnel_url,
+        TunnelConfig, add_tunnel, add_tunnel_with_extra, load_tunnels, managers_snapshot,
+        remove_tunnel, stop_all_tunnels, update_tunnel_autostart, update_tunnel_label,
+        update_tunnel_url,
     },
     util::t,
 };
@@ -705,7 +706,27 @@ impl TunnelRow {
         let row = adw::ExpanderRow::new();
         let label = config.label.trim().to_string();
         let title = if label.is_empty() {
-            format!("Port {} • {}", config.port, config.protocol)
+            if config.provider == "SSH" {
+                let host = config
+                    .extra
+                    .get("ssh_host")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let user = config
+                    .extra
+                    .get("ssh_user")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if host.is_empty() {
+                    format!("SSH • Port {}", config.port)
+                } else if user.is_empty() {
+                    format!("{} • Port {}", host, config.port)
+                } else {
+                    format!("{}@{} • Port {}", user, host, config.port)
+                }
+            } else {
+                format!("Port {} • {}", config.port, config.protocol)
+            }
         } else {
             label
         };
@@ -835,8 +856,11 @@ impl TunnelRow {
                                     }
                                 }
                             }
-                            let (ok, msg) =
-                                manager.start(config.port, &config.protocol.to_lowercase());
+                            let (ok, msg) = if config.provider == "SSH" {
+                                manager.start_with_config(&config)
+                            } else {
+                                manager.start(config.port, &config.protocol.to_lowercase())
+                            };
                             let _ = start_tx.send((ok, msg));
                         });
                     }
@@ -1036,13 +1060,20 @@ impl TunnelRowRefs {
         }
 
         let mut display_text = String::new();
-        if self.config.borrow().provider == "Playit" && !self.public_url.borrow().is_empty() {
+        let is_ssh = self.config.borrow().provider == "SSH";
+        if (self.config.borrow().provider == "Playit" || is_ssh)
+            && !self.public_url.borrow().is_empty()
+        {
             display_text = self.public_url.borrow().clone();
         }
 
         if display_text.is_empty() {
             display_text = if status == "running" {
-                t("Running")
+                if is_ssh && !self.public_url.borrow().is_empty() {
+                    self.public_url.borrow().clone()
+                } else {
+                    t("Running")
+                }
             } else if status == "stopped" {
                 t("Stopped")
             } else if status.starts_with("error:") {
@@ -1054,6 +1085,10 @@ impl TunnelRowRefs {
             } else {
                 format!("{}...", capitalize(status))
             };
+        }
+        // For SSH, if running and we have endpoint, show endpoint even if above fell back to "Running"
+        if is_ssh && status == "running" && !self.public_url.borrow().is_empty() {
+            display_text = self.public_url.borrow().clone();
         }
         self.row.set_subtitle(&display_text);
 
@@ -1163,11 +1198,38 @@ impl TunnelRowRefs {
                 update_tunnel_label(&refs.config.borrow().id, &new_label);
                 refs.config.borrow_mut().label = new_label.clone();
                 if new_label.is_empty() {
-                    refs.row.set_title(&format!(
-                        "Port {} • {}",
-                        refs.config.borrow().port,
-                        refs.config.borrow().protocol
-                    ));
+                    if refs.config.borrow().provider == "SSH" {
+                        let host = refs
+                            .config
+                            .borrow()
+                            .extra
+                            .get("ssh_host")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let user = refs
+                            .config
+                            .borrow()
+                            .extra
+                            .get("ssh_user")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let title = if host.is_empty() {
+                            format!("SSH • Port {}", refs.config.borrow().port)
+                        } else if user.is_empty() {
+                            format!("{} • Port {}", host, refs.config.borrow().port)
+                        } else {
+                            format!("{}@{} • Port {}", user, host, refs.config.borrow().port)
+                        };
+                        refs.row.set_title(&title);
+                    } else {
+                        refs.row.set_title(&format!(
+                            "Port {} • {}",
+                            refs.config.borrow().port,
+                            refs.config.borrow().protocol
+                        ));
+                    }
                 } else {
                     refs.row.set_title(&new_label);
                 }
@@ -1183,6 +1245,167 @@ impl TunnelRowRefs {
             });
         }
         group.add(&label_row);
+
+        if self.config.borrow().provider == "SSH" {
+            let ssh_host = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_host")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let ssh_port = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(22);
+            let ssh_user = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let direction = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_direction")
+                .and_then(|v| v.as_str())
+                .unwrap_or("local")
+                .to_string();
+            let remote_host = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_remote_host")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let remote_port = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_remote_port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let bind = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_bind_address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("127.0.0.1")
+                .to_string();
+            let key_path = self
+                .config
+                .borrow()
+                .extra
+                .get("ssh_key_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let not_set = t("Not set");
+            let default_txt = t("Default");
+            let ssh_host_row = adw::ActionRow::new();
+            ssh_host_row.set_title(&t("SSH Host"));
+            ssh_host_row.set_subtitle(if ssh_host.is_empty() {
+                &not_set
+            } else {
+                &ssh_host
+            });
+            group.add(&ssh_host_row);
+
+            let ssh_user_row = adw::ActionRow::new();
+            ssh_user_row.set_title(&t("SSH User"));
+            ssh_user_row.set_subtitle(if ssh_user.is_empty() {
+                &default_txt
+            } else {
+                &ssh_user
+            });
+            group.add(&ssh_user_row);
+
+            let ssh_port_info = adw::ActionRow::new();
+            ssh_port_info.set_title(&t("SSH Port"));
+            ssh_port_info.set_subtitle(&format!("{}", ssh_port));
+            group.add(&ssh_port_info);
+
+            let dir_row = adw::ActionRow::new();
+            dir_row.set_title(&t("Direction"));
+            let dir_label = match direction.as_str() {
+                "remote" => t("Remote (-R)"),
+                "dynamic" => t("Dynamic (-D)"),
+                _ => t("Local (-L)"),
+            };
+            dir_row.set_subtitle(&dir_label);
+            group.add(&dir_row);
+
+            if direction != "dynamic" {
+                let rh_row = adw::ActionRow::new();
+                rh_row.set_title(&t("Remote Host"));
+                rh_row.set_subtitle(if remote_host.is_empty() {
+                    &not_set
+                } else {
+                    &remote_host
+                });
+                group.add(&rh_row);
+
+                let rp_row = adw::ActionRow::new();
+                rp_row.set_title(&t("Remote Port"));
+                rp_row.set_subtitle(&format!("{}", remote_port));
+                group.add(&rp_row);
+            }
+
+            let bind_row_info = adw::ActionRow::new();
+            bind_row_info.set_title(&t("Bind Address"));
+            bind_row_info.set_subtitle(&bind);
+            group.add(&bind_row_info);
+
+            if !key_path.is_empty() {
+                let key_row = adw::ActionRow::new();
+                key_row.set_title(&t("Private Key"));
+                key_row.set_subtitle(&key_path);
+                group.add(&key_row);
+            }
+
+            // Show effective ssh command for debugging (non-sensitive)
+            let cmd_preview = {
+                let lp = self.config.borrow().port;
+                let user_prefix = if ssh_user.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}@", ssh_user)
+                };
+                let target = if user_prefix.is_empty() {
+                    ssh_host.clone()
+                } else {
+                    format!("{}{}", user_prefix, ssh_host)
+                };
+                match direction.as_str() {
+                    "dynamic" => format!("ssh -N -D {bind}:{lp} {target}"),
+                    "remote" => format!(
+                        "ssh -N -R {bind}:{lp}:{remote_host}:{remote_port} {target} -p {}",
+                        ssh_port
+                    ),
+                    _ => format!(
+                        "ssh -N -L {bind}:{lp}:{remote_host}:{remote_port} {target} -p {}",
+                        ssh_port
+                    ),
+                }
+            };
+            // Clean double @
+            let cmd_preview = cmd_preview.replace("@ @", "@").replace("  ", " ");
+            let cmd_row = adw::ActionRow::new();
+            cmd_row.set_title(&t("SSH Command"));
+            cmd_row.set_subtitle(&cmd_preview);
+            cmd_row.set_selectable(true);
+            group.add(&cmd_row);
+        }
 
         if self.config.borrow().provider == "Playit" {
             let cycle_row = adw::ActionRow::new();
@@ -1314,13 +1537,12 @@ impl SetupProviderPage {
 
         let original_page = adw::PreferencesPage::new();
         toolbar_view.set_content(Some(&original_page));
-        let group = adw::PreferencesGroup::new();
-        group.set_title(&t("Select Provider"));
-        original_page.add(&group);
 
-        let providers = ["Cloudflare", "Ngrok", "Playit"];
+        let providers_group = adw::PreferencesGroup::new();
+        providers_group.set_title(&t("Tunnel Providers"));
+        original_page.add(&providers_group);
 
-        for provider in providers {
+        for provider in ["Cloudflare", "Ngrok", "Playit"] {
             let row = adw::ActionRow::new();
             row.set_title(provider);
             row.set_activatable(true);
@@ -1331,7 +1553,26 @@ impl SetupProviderPage {
             row.connect_activated(move |_| {
                 provider_selected(provider, &nav_view, on_saved.clone());
             });
-            group.add(&row);
+            providers_group.add(&row);
+        }
+
+        let ssh_group = adw::PreferencesGroup::new();
+        ssh_group.set_title(&t("SSH"));
+        original_page.add(&ssh_group);
+
+        {
+            let row = adw::ActionRow::new();
+            row.set_title("SSH");
+            row.set_subtitle(&t("Local, remote or SOCKS tunnel"));
+            row.set_activatable(true);
+            let icon = gtk::Image::from_icon_name("go-next-symbolic");
+            row.add_suffix(&icon);
+            let nav_view = nav_view.clone();
+            let on_saved = on_saved.clone();
+            row.connect_activated(move |_| {
+                provider_selected("SSH", &nav_view, on_saved.clone());
+            });
+            ssh_group.add(&row);
         }
 
         page
@@ -1350,7 +1591,11 @@ fn provider_selected(
         let on_saved = on_saved.clone();
         let provider = provider.to_string();
         Rc::new(move || {
-            nav_view.push(&setup_details_page(&provider, on_saved.clone()));
+            if provider == "SSH" {
+                nav_view.push(&setup_ssh_details_page(&provider, on_saved.clone()));
+            } else {
+                nav_view.push(&setup_details_page(&provider, on_saved.clone()));
+            }
         })
     };
 
@@ -1377,6 +1622,17 @@ fn provider_selected(
             }
         }
     });
+
+    // SSH uses system ssh; don't require bundled download - show details with warning if missing
+    if provider == "SSH" {
+        if !manager.is_installed() {
+            // Still allow setup; start will fail with helpful message, but don't block
+            push_details();
+        } else {
+            push_auth_if_needed();
+        }
+        return;
+    }
 
     if !manager.is_installed() {
         let page = setup_download_page(provider, nav_view, manager, push_auth_if_needed);
@@ -1544,6 +1800,262 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             .unwrap_or_else(|| "TCP".to_string());
         let label = label_row.text().trim().to_string();
         add_tunnel(&provider, &protocol, port, &label);
+        on_saved(Some(t("Tunnel created")));
+    });
+
+    page
+}
+
+fn setup_ssh_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> adw::NavigationPage {
+    let toolbar_view = adw::ToolbarView::new();
+    let page = adw::NavigationPage::new(&toolbar_view, &t("SSH Tunnel"));
+    let header = adw::HeaderBar::new();
+    toolbar_view.add_top_bar(&header);
+    let prefs = adw::PreferencesPage::new();
+    toolbar_view.set_content(Some(&prefs));
+
+    let group = adw::PreferencesGroup::new();
+    group.set_title(&t("{provider} Settings").replace("{provider}", provider));
+    let ssh_installed = get_provider_manager("SSH").is_installed();
+    if !ssh_installed {
+        group.set_description(Some(&t("SSH client not found. Install openssh-client.")));
+    }
+    prefs.add(&group);
+
+    let label_row = adw::EntryRow::new();
+    label_row.set_title(&t("Label (optional)"));
+    group.add(&label_row);
+
+    let host_row = adw::EntryRow::new();
+    host_row.set_title(&t("Server Address"));
+    group.add(&host_row);
+
+    let user_row = adw::EntryRow::new();
+    user_row.set_title(&t("Username"));
+
+    // Local port (TunnelConfig.port)
+    let local_port_row = adw::ActionRow::new();
+    local_port_row.set_title(&t("Local Port"));
+    let local_port_spin = gtk::SpinButton::with_range(1.0, 65535.0, 1.0);
+    local_port_spin.set_value(8080.0);
+    local_port_spin.set_valign(gtk::Align::Center);
+    local_port_row.add_suffix(&local_port_spin);
+    group.add(&local_port_row);
+
+    let remote_host_row = adw::EntryRow::new();
+    remote_host_row.set_title(&t("Destination Address"));
+    remote_host_row.set_text("localhost");
+    group.add(&remote_host_row);
+
+    let remote_port_row = adw::ActionRow::new();
+    remote_port_row.set_title(&t("Destination Port"));
+    let remote_port_spin = gtk::SpinButton::with_range(1.0, 65535.0, 1.0);
+    remote_port_spin.set_value(5432.0);
+    remote_port_spin.set_valign(gtk::Align::Center);
+    remote_port_row.add_suffix(&remote_port_spin);
+    group.add(&remote_port_row);
+
+    // Advanced options hidden by default
+    let advanced_group = adw::PreferencesGroup::new();
+    prefs.add(&advanced_group);
+    let advanced_expander = adw::ExpanderRow::new();
+    advanced_expander.set_title(&t("Advanced"));
+    advanced_expander.set_expanded(false);
+    advanced_group.add(&advanced_expander);
+
+    advanced_expander.add_row(&user_row);
+
+    let ssh_port_row = adw::ActionRow::new();
+    ssh_port_row.set_title(&t("SSH Port"));
+    let ssh_port_spin = gtk::SpinButton::with_range(1.0, 65535.0, 1.0);
+    ssh_port_spin.set_value(22.0);
+    ssh_port_spin.set_valign(gtk::Align::Center);
+    ssh_port_row.add_suffix(&ssh_port_spin);
+    advanced_expander.add_row(&ssh_port_row);
+
+    let bind_row = adw::ComboRow::new();
+    bind_row.set_title(&t("Bind Address"));
+    let bind_model = gtk::StringList::new(&["127.0.0.1", "0.0.0.0", "localhost"]);
+    bind_row.set_model(Some(&bind_model));
+    bind_row.set_selected(0);
+    advanced_expander.add_row(&bind_row);
+
+    let direction_row = adw::ComboRow::new();
+    direction_row.set_title(&t("Type"));
+    let direction_model = gtk::StringList::new(&["Local", "Remote", "SOCKS"]);
+    direction_row.set_model(Some(&direction_model));
+    direction_row.set_selected(0);
+    advanced_expander.add_row(&direction_row);
+
+    // Key file handling: import via portal
+    let key_row = adw::ActionRow::new();
+    key_row.set_title(&t("Private Key"));
+    key_row.set_subtitle(&t("Uses system keys if empty"));
+    let key_btn = gtk::Button::with_label(&t("Select..."));
+    key_btn.set_valign(gtk::Align::Center);
+    key_row.add_suffix(&key_btn);
+    let key_clear_btn = gtk::Button::from_icon_name("edit-clear-symbolic");
+    key_clear_btn.set_tooltip_text(Some(&t("Clear")));
+    key_clear_btn.set_valign(gtk::Align::Center);
+    key_clear_btn.add_css_class("flat");
+    key_clear_btn.set_visible(false);
+    key_row.add_suffix(&key_clear_btn);
+    advanced_expander.add_row(&key_row);
+
+    // Keep imported path
+    let imported_key: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let imported_key_display: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    {
+        let key_row = key_row.clone();
+        let key_clear_btn = key_clear_btn.clone();
+        let imported_key = imported_key.clone();
+        let imported_key_display = imported_key_display.clone();
+        key_btn.connect_clicked(move |btn| {
+            let dialog = gtk::FileDialog::new();
+            dialog.set_title(&t("Select Private Key"));
+            let key_row = key_row.clone();
+            let key_clear_btn = key_clear_btn.clone();
+            let imported_key = imported_key.clone();
+            let imported_key_display = imported_key_display.clone();
+            let btn = btn.clone();
+            dialog.open(
+                None::<&gtk::Window>,
+                None::<&gio::Cancellable>,
+                move |res| {
+                    if let Ok(file) = res {
+                        if let Some(path) = file.path() {
+                            // Import via SshManager
+                            let mgr = crate::managers::ssh::SshManager::new();
+                            match mgr.import_key(&path) {
+                                Ok(stored) => {
+                                    let display = path
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("key")
+                                        .to_string();
+                                    *imported_key.borrow_mut() = Some(stored.clone());
+                                    *imported_key_display.borrow_mut() = Some(display.clone());
+                                    key_row.set_subtitle(&display);
+                                    key_clear_btn.set_visible(true);
+                                    btn.set_label(&t("Change..."));
+                                }
+                                Err(e) => {
+                                    show_error_for_widget(&key_row, &t("Key Import Failed"), &e);
+                                }
+                            }
+                        }
+                    }
+                },
+            );
+        });
+    }
+    {
+        let key_row_c = key_row.clone();
+        let key_btn_c = key_btn.clone();
+        let key_clear_btn_c = key_clear_btn.clone();
+        let imported_key_c = imported_key.clone();
+        let imported_key_display_c = imported_key_display.clone();
+        key_clear_btn.clone().connect_clicked(move |_| {
+            *imported_key_c.borrow_mut() = None;
+            *imported_key_display_c.borrow_mut() = None;
+            key_row_c.set_subtitle(&t("Uses system keys if empty"));
+            key_clear_btn_c.set_visible(false);
+            key_btn_c.set_label(&t("Select..."));
+        });
+    }
+
+    // Type hides remote host/port for SOCKS
+    {
+        let remote_host_row = remote_host_row.clone();
+        let remote_port_row = remote_port_row.clone();
+        direction_row.connect_selected_notify(move |row| {
+            let is_dynamic = row.selected() == 2;
+            remote_host_row.set_visible(!is_dynamic);
+            remote_port_row.set_visible(!is_dynamic);
+            if is_dynamic {
+                local_port_row.set_title(&t("SOCKS Port"));
+            } else {
+                local_port_row.set_title(&t("Local Port"));
+            }
+        });
+    }
+
+    let btn_group = adw::PreferencesGroup::new();
+    prefs.add(&btn_group);
+    let save_btn = gtk::Button::with_label(&t("Save Tunnel"));
+    save_btn.add_css_class("suggested-action");
+    save_btn.add_css_class("pill");
+    save_btn.set_margin_top(24);
+    btn_group.add(&save_btn);
+
+    let provider = provider.to_string();
+    save_btn.connect_clicked(move |_| {
+        let host = host_row.text().trim().to_string();
+        if host.is_empty() {
+            show_error_for_widget(&host_row, &t("Missing Host"), &t("SSH host is required"));
+            return;
+        }
+        let direction_idx = direction_row.selected();
+        let direction = match direction_idx {
+            1 => "remote",
+            2 => "dynamic",
+            _ => "local",
+        };
+        let is_dynamic = direction == "dynamic";
+        let remote_host = remote_host_row.text().trim().to_string();
+        let remote_port = remote_port_spin.value() as u16;
+        if !is_dynamic && remote_host.is_empty() {
+            show_error_for_widget(
+                &remote_host_row,
+                &t("Missing Remote Host"),
+                &t("Remote host is required"),
+            );
+            return;
+        }
+        let local_port = local_port_spin.value() as u16;
+        let ssh_port = ssh_port_spin.value() as u16;
+        let user = user_row.text().trim().to_string();
+        let label = label_row.text().trim().to_string();
+        let bind_idx = bind_row.selected();
+        let bind = bind_model
+            .string(bind_idx)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+        let key_path = imported_key.borrow().clone().unwrap_or_default();
+
+        let mut extra = std::collections::HashMap::new();
+        extra.insert(
+            "ssh_host".to_string(),
+            serde_json::Value::String(host.clone()),
+        );
+        extra.insert(
+            "ssh_port".to_string(),
+            serde_json::Value::Number(ssh_port.into()),
+        );
+        if !user.is_empty() {
+            extra.insert("ssh_user".to_string(), serde_json::Value::String(user));
+        }
+        extra.insert(
+            "ssh_direction".to_string(),
+            serde_json::Value::String(direction.to_string()),
+        );
+        extra.insert("ssh_bind_address".to_string(), serde_json::Value::String(bind));
+        if !key_path.is_empty() {
+            extra.insert("ssh_key_path".to_string(), serde_json::Value::String(key_path));
+        }
+        if !is_dynamic {
+            extra.insert(
+                "ssh_remote_host".to_string(),
+                serde_json::Value::String(remote_host),
+            );
+            extra.insert(
+                "ssh_remote_port".to_string(),
+                serde_json::Value::Number(remote_port.into()),
+            );
+        }
+
+        add_tunnel_with_extra(&provider, "TCP", local_port, &label, extra);
         on_saved(Some(t("Tunnel created")));
     });
 

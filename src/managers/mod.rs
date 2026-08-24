@@ -1,12 +1,14 @@
 pub mod cloudflare;
 pub mod ngrok;
 pub mod playit;
+pub mod ssh;
 
 use crate::{events::ManagerEvent, tunnel_store};
 use cloudflare::CloudflareManager;
 use ngrok::NgrokManager;
 use once_cell::sync::Lazy;
 use playit::PlayitManager;
+use ssh::SshManager;
 use std::sync::Arc;
 
 static SHARED_PLAYIT_MANAGER: Lazy<Arc<PlayitManager>> =
@@ -17,6 +19,7 @@ pub enum ManagerHandle {
     Playit(Arc<PlayitManager>),
     Cloudflare(Arc<CloudflareManager>),
     Ngrok(Arc<NgrokManager>),
+    Ssh(Arc<SshManager>),
 }
 
 impl ManagerHandle {
@@ -25,6 +28,7 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.status(),
             Self::Cloudflare(manager) => manager.status(),
             Self::Ngrok(manager) => manager.status(),
+            Self::Ssh(manager) => manager.status(),
         }
     }
 
@@ -33,6 +37,7 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.public_endpoint(),
             Self::Cloudflare(manager) => manager.public_endpoint(),
             Self::Ngrok(manager) => manager.public_endpoint(),
+            Self::Ssh(manager) => manager.public_endpoint(),
         }
     }
 
@@ -41,6 +46,7 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.is_running(),
             Self::Cloudflare(manager) => manager.is_running(),
             Self::Ngrok(manager) => manager.is_running(),
+            Self::Ssh(manager) => manager.is_running(),
         }
     }
 
@@ -49,6 +55,7 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.is_installed(),
             Self::Cloudflare(manager) => manager.is_installed(),
             Self::Ngrok(manager) => manager.is_installed(),
+            Self::Ssh(manager) => manager.is_installed(),
         }
     }
 
@@ -60,6 +67,7 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.install_latest_binary(progress),
             Self::Cloudflare(manager) => manager.install_latest_binary(progress),
             Self::Ngrok(manager) => manager.install_latest_binary(progress),
+            Self::Ssh(manager) => manager.install_latest_binary(progress),
         }
     }
 
@@ -68,6 +76,17 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.start(port, protocol, "", false, false),
             Self::Cloudflare(manager) => manager.start(port, protocol),
             Self::Ngrok(manager) => manager.start(port, protocol),
+            Self::Ssh(manager) => manager.start(port, protocol),
+        }
+    }
+
+    pub fn start_with_config(
+        &self,
+        config: &crate::tunnel_store::TunnelConfig,
+    ) -> (bool, String) {
+        match self {
+            Self::Ssh(manager) => manager.start_with_config(config),
+            _ => self.start(config.port, &config.protocol.to_lowercase()),
         }
     }
 
@@ -78,6 +97,7 @@ impl ManagerHandle {
             }
             Self::Cloudflare(manager) => manager.stop(),
             Self::Ngrok(manager) => manager.stop(),
+            Self::Ssh(manager) => manager.stop(),
         }
     }
 
@@ -89,6 +109,7 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.connect(signal_name, callback),
             Self::Cloudflare(manager) => manager.connect(signal_name, callback),
             Self::Ngrok(manager) => manager.connect(signal_name, callback),
+            Self::Ssh(manager) => manager.connect(signal_name, callback),
         }
     }
 
@@ -97,6 +118,7 @@ impl ManagerHandle {
             Self::Playit(manager) => manager.disconnect(handler_id),
             Self::Cloudflare(manager) => manager.disconnect(handler_id),
             Self::Ngrok(manager) => manager.disconnect(handler_id),
+            Self::Ssh(manager) => manager.disconnect(handler_id),
         }
     }
 
@@ -114,11 +136,19 @@ impl ManagerHandle {
         }
     }
 
+    pub fn as_ssh(&self) -> Option<Arc<SshManager>> {
+        match self {
+            Self::Ssh(manager) => Some(manager.clone()),
+            _ => None,
+        }
+    }
+
     pub fn identity_key(&self) -> usize {
         match self {
             Self::Playit(manager) => tunnel_store::manager_ptr(manager),
             Self::Cloudflare(manager) => tunnel_store::manager_ptr(manager),
             Self::Ngrok(manager) => tunnel_store::manager_ptr(manager),
+            Self::Ssh(manager) => tunnel_store::manager_ptr(manager),
         }
     }
 }
@@ -131,6 +161,7 @@ pub fn get_provider_manager(provider: &str) -> ManagerHandle {
     match provider {
         "Playit" => ManagerHandle::Playit(get_shared_playit_manager()),
         "Cloudflare" => ManagerHandle::Cloudflare(Arc::new(CloudflareManager::new())),
+        "SSH" => ManagerHandle::Ssh(Arc::new(SshManager::new())),
         _ => ManagerHandle::Ngrok(Arc::new(NgrokManager::new())),
     }
 }

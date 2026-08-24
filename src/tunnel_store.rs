@@ -75,6 +75,33 @@ pub fn add_tunnel(provider: &str, protocol: &str, port: u16, label: &str) -> Str
     id
 }
 
+pub fn add_tunnel_with_extra(
+    provider: &str,
+    protocol: &str,
+    port: u16,
+    label: &str,
+    extra: HashMap<String, serde_json::Value>,
+) -> String {
+    let mut tunnels = load_tunnels();
+    let id = Uuid::new_v4().to_string();
+    tunnels.push(TunnelConfig {
+        id: id.clone(),
+        provider: provider.to_string(),
+        protocol: protocol.to_string(),
+        port,
+        label: label.to_string(),
+        autostart: false,
+        public_url: String::new(),
+        extra,
+    });
+    save_tunnels(&tunnels);
+    id
+}
+
+pub fn update_tunnel_extra(tunnel_id: &str, extra: HashMap<String, serde_json::Value>) {
+    update_tunnel(tunnel_id, |tunnel| tunnel.extra = extra);
+}
+
 pub fn update_tunnel_url(tunnel_id: &str, url: &str) {
     update_tunnel(tunnel_id, |tunnel| tunnel.public_url = url.to_string());
 }

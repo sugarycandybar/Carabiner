@@ -12,7 +12,9 @@
 		"--socket=fallback-x11",
 		"--socket=wayland",
 		"--device=dri",
-		"--share=network"
+		"--share=network",
+		"--talk-name=org.freedesktop.portal.FileChooser",
+		"--talk-name=org.freedesktop.Flatpak"
 	],
 	"cleanup": [
 		"/include",
@@ -32,6 +34,15 @@
 		]
 	},
 	"modules": [
+		{
+			"name": "openssh",
+			"buildsystem": "simple",
+			"build-commands": [
+				"mkdir -p /app/bin",
+				"if command -v ssh >/dev/null 2>&1; then cp $(command -v ssh) /app/bin/ssh; echo \"copied ssh to /app/bin/ssh\"; else echo \"ssh not found in SDK - will use flatpak-spawn host fallback at runtime\"; fi",
+				"if test -f /app/bin/ssh; then chmod +x /app/bin/ssh; fi"
+			]
+		},
 		{
 			"name": "carabiner",
 			"buildsystem": "meson",
