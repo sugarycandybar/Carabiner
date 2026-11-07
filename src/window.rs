@@ -3,13 +3,15 @@ use crate::{
     events::ManagerEvent,
     managers::{
         ManagerHandle, get_manager_for_tunnel, get_provider_manager, get_shared_playit_manager,
-        ngrok::NgrokManager, playit::PlayitManager,
+        ngrok::NgrokManager,
+        playit::{PlayitManager, TunnelKind, kind_from_config},
     },
     portal::{request_background, set_background_status},
     settings::{load_settings, save_settings},
     tunnel_store::{
-        TunnelConfig, add_tunnel, load_tunnels, managers_snapshot, remove_tunnel, stop_all_tunnels,
-        update_tunnel_autostart, update_tunnel_label, update_tunnel_url,
+        TunnelConfig, add_tunnel, add_tunnel_with_type, load_tunnels, managers_snapshot,
+        remove_tunnel, stop_all_tunnels, update_tunnel_autostart, update_tunnel_label,
+        update_tunnel_url,
     },
     util::t,
 };
@@ -25,6 +27,22 @@ fn set_switch_active(switch: &gtk::Switch, active: bool) {
 
 fn add_toast(overlay: &adw::ToastOverlay, text: &str) {
     overlay.add_toast(adw::Toast::new(text));
+}
+
+fn tunnel_title(config: &TunnelConfig) -> String {
+    let label = config.label.trim();
+    if !label.is_empty() {
+        return label.to_string();
+    }
+
+    if config.provider == "Playit" {
+        let kind = kind_from_config(&config.protocol, &config.tunnel_type);
+        if let Some(title) = kind.title() {
+            return format!("{title} • Port {}", config.port);
+        }
+    }
+
+    format!("Port {} • {}", config.port, config.protocol)
 }
 
 fn show_message(parent: Option<&gtk::Window>, title: &str, body: &str) {
@@ -703,13 +721,7 @@ impl TunnelRow {
     fn new(config: TunnelConfig, on_delete: Rc<dyn Fn(Option<String>)>) -> Self {
         let manager = get_manager_for_tunnel(&config);
         let row = adw::ExpanderRow::new();
-        let label = config.label.trim().to_string();
-        let title = if label.is_empty() {
-            format!("Port {} • {}", config.port, config.protocol)
-        } else {
-            label
-        };
-        row.set_title(&title);
+        row.set_title(&tunnel_title(&config));
         row.set_subtitle(&t("Stopped"));
 
         let public_url = Rc::new(RefCell::new({
@@ -1025,13 +1037,13 @@ impl TunnelRowRefs {
         if self.config.borrow().provider == "Playit"
             && let Some(playit) = self.manager.as_playit()
         {
-            let protocol = self.config.borrow().protocol.to_lowercase();
-            for tunnel in playit.tunnels_for(&protocol) {
-                if tunnel.port == Some(self.config.borrow().port) && !tunnel.hostname.is_empty() {
-                    *self.public_url.borrow_mut() = tunnel.hostname.clone();
-                    update_tunnel_url(&self.config.borrow().id, &tunnel.hostname);
-                    break;
-                }
+            let kind = kind_from_config(
+                &self.config.borrow().protocol,
+                &self.config.borrow().tunnel_type,
+            );
+            if let Some(tunnel) = playit.tunnel_for(self.config.borrow().port, kind) {
+                *self.public_url.borrow_mut() = tunnel.hostname.clone();
+                update_tunnel_url(&self.config.borrow().id, &tunnel.hostname);
             }
         }
 
@@ -1138,6 +1150,17 @@ impl TunnelRowRefs {
         provider_row.set_subtitle(&self.config.borrow().provider);
         group.add(&provider_row);
 
+        if self.config.borrow().provider == "Playit" {
+            let kind = kind_from_config(
+                &self.config.borrow().protocol,
+                &self.config.borrow().tunnel_type,
+            );
+            let type_row = adw::ActionRow::new();
+            type_row.set_title(&t("Tunnel Type"));
+            type_row.set_subtitle(kind.label());
+            group.add(&type_row);
+        }
+
         let info_url_row = adw::ActionRow::new();
         info_url_row.set_title(&t("Public URL"));
         let public_url_subtitle = self.public_url.borrow().clone();
@@ -1161,16 +1184,8 @@ impl TunnelRowRefs {
             label_row.connect_apply(move |row| {
                 let new_label = row.text().trim().to_string();
                 update_tunnel_label(&refs.config.borrow().id, &new_label);
-                refs.config.borrow_mut().label = new_label.clone();
-                if new_label.is_empty() {
-                    refs.row.set_title(&format!(
-                        "Port {} • {}",
-                        refs.config.borrow().port,
-                        refs.config.borrow().protocol
-                    ));
-                } else {
-                    refs.row.set_title(&new_label);
-                }
+                refs.config.borrow_mut().label = new_label;
+                refs.row.set_title(&tunnel_title(&refs.config.borrow()));
                 dialog.close();
                 if let Some(root) = refs.row.root()
                     && let Ok(win) = root.downcast::<adw::ApplicationWindow>()
@@ -1213,7 +1228,10 @@ impl TunnelRowRefs {
                 let (tx, rx) = unbounded();
                 let manager = refs.manager.as_playit();
                 let port = refs.config.borrow().port;
-                let protocol = refs.config.borrow().protocol.to_lowercase();
+                let kind = kind_from_config(
+                    &refs.config.borrow().protocol,
+                    &refs.config.borrow().tunnel_type,
+                );
                 let label = if refs.config.borrow().label.is_empty() {
                     "carabiner".to_string()
                 } else {
@@ -1226,9 +1244,9 @@ impl TunnelRowRefs {
                             let _ = playit.initialize();
                         }
                         if playit.initialized() {
-                            playit.delete_tunnels(port, &protocol);
+                            playit.delete_tunnels_for_kind(port, kind);
                             public_url = playit
-                                .get_tunnel(port, &protocol, true, &label)
+                                .get_tunnel_for_kind(port, kind, true, &label)
                                 .ok()
                                 .flatten()
                                 .and_then(|tunnel| {
@@ -1481,7 +1499,7 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
     let protocol_row = adw::ComboRow::new();
     protocol_row.set_title(&t("Protocol"));
     let protocol_model = if provider == "Playit" {
-        gtk::StringList::new(&["TCP", "UDP"])
+        gtk::StringList::new(&["TCP", "UDP", "Bedrock tunnel (Raknet)", "Bedrock tunnel"])
     } else if provider == "Ngrok" {
         gtk::StringList::new(&["TCP", "HTTP"])
     } else {
@@ -1502,7 +1520,7 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
         .unwrap_or_else(|| "TCP".to_string());
     let initial_port = match initial_protocol.as_str() {
         "HTTP" => 8080.0,
-        "UDP" => 19132.0,
+        "UDP" | "Bedrock tunnel (Raknet)" | "Bedrock tunnel" => 19132.0,
         _ => 25565.0,
     };
     port_spin.set_value(initial_port);
@@ -1521,7 +1539,9 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             match protocol.as_str() {
                 "TCP" => port_spin_clone.set_value(25565.0),
                 "HTTP" => port_spin_clone.set_value(8080.0),
-                "UDP" => port_spin_clone.set_value(19132.0),
+                "UDP" | "Bedrock tunnel (Raknet)" | "Bedrock tunnel" => {
+                    port_spin_clone.set_value(19132.0)
+                }
                 _ => {}
             }
         }
@@ -1538,12 +1558,22 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
     let provider = provider.to_string();
     save_btn.connect_clicked(move |_| {
         let port = port_spin.value() as u16;
-        let protocol = protocol_model
+        let selected = protocol_model
             .string(protocol_row.selected())
             .map(|s| s.to_string())
             .unwrap_or_else(|| "TCP".to_string());
         let label = label_row.text().trim().to_string();
-        add_tunnel(&provider, &protocol, port, &label);
+        if provider == "Playit" {
+            let (protocol, tunnel_type) = match selected.as_str() {
+                "UDP" => ("UDP", TunnelKind::Udp.key()),
+                "Bedrock tunnel (Raknet)" => ("UDP", TunnelKind::BedrockRaknet.key()),
+                "Bedrock tunnel" => ("UDP", TunnelKind::Bedrock.key()),
+                _ => ("TCP", TunnelKind::Java.key()),
+            };
+            add_tunnel_with_type(&provider, protocol, tunnel_type, port, &label);
+        } else {
+            add_tunnel(&provider, &selected, port, &label);
+        }
         on_saved(Some(t("Tunnel created")));
     });
 

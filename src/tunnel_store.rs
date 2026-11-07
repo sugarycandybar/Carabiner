@@ -25,6 +25,10 @@ pub struct TunnelConfig {
     pub port: u16,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
+    /// Provider specific sub-type. For playit this is the tunnel kind
+    /// (`java`, `udp`, `bedrock` or `bedrock-raknet`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tunnel_type: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub autostart: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -59,6 +63,16 @@ pub fn save_tunnels(tunnels: &[TunnelConfig]) {
 }
 
 pub fn add_tunnel(provider: &str, protocol: &str, port: u16, label: &str) -> String {
+    add_tunnel_with_type(provider, protocol, "", port, label)
+}
+
+pub fn add_tunnel_with_type(
+    provider: &str,
+    protocol: &str,
+    tunnel_type: &str,
+    port: u16,
+    label: &str,
+) -> String {
     let mut tunnels = load_tunnels();
     let id = Uuid::new_v4().to_string();
     tunnels.push(TunnelConfig {
@@ -67,6 +81,7 @@ pub fn add_tunnel(provider: &str, protocol: &str, port: u16, label: &str) -> Str
         protocol: protocol.to_string(),
         port,
         label: label.to_string(),
+        tunnel_type: tunnel_type.to_string(),
         autostart: false,
         public_url: String::new(),
         extra: HashMap::new(),
@@ -116,12 +131,13 @@ pub fn remove_tunnel(tunnel_id: &str) {
         let playit = manager
             .and_then(|manager| manager.as_playit())
             .unwrap_or_else(get_shared_playit_manager);
+        let kind = crate::managers::playit::kind_from_config(&config.protocol, &config.tunnel_type);
         thread::spawn(move || {
             if !playit.initialized() {
                 let _ = playit.initialize();
             }
             if playit.initialized() {
-                let _ = playit.delete_tunnels(config.port, &config.protocol.to_lowercase());
+                let _ = playit.delete_tunnels_for_kind(config.port, kind);
             }
         });
     } else if let Some(manager) = manager

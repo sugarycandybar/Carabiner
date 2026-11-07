@@ -34,10 +34,97 @@ static SAFE_LABEL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^a-zA-Z0-9-]").un
 static DASH_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"-+").unwrap());
 static HEX_LABEL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[0-9a-f-]{32,40}$").unwrap());
 
+/// Pinned playit agent release. v1.2.0 is the first release that forwards
+/// NetherNet traffic (Minecraft Bedrock without RakNet).
+const PLAYIT_AGENT_VERSION: &str = "v1.2.0";
+const PLAYIT_AGENT_VERSION_NUMBER: (u64, u64, u64) = (1, 2, 0);
+
+/// playit's NetherNet tunnel type (Minecraft Bedrock without RakNet).
+const NETHERNET_TUNNEL_TYPE: &str = "nethernet";
+const NETHERNET_CONNECT_PORT: u16 = 19132;
+
+/// The kind of tunnel a playit entry represents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TunnelKind {
+    Java,
+    Udp,
+    Bedrock,
+    BedrockRaknet,
+}
+
+impl TunnelKind {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Java => "java",
+            Self::Udp => "udp",
+            Self::Bedrock => "bedrock",
+            Self::BedrockRaknet => "bedrock-raknet",
+        }
+    }
+
+    pub fn from_key(value: &str) -> Self {
+        match value.trim().to_lowercase().as_str() {
+            "udp" | "raw" | "raw-udp" => Self::Udp,
+            "bedrock" | "nethernet" => Self::Bedrock,
+            "bedrock-raknet" | "raknet" | "minecraft-bedrock" => Self::BedrockRaknet,
+            "java" | "tcp" | "minecraft-java" => Self::Java,
+            _ => Self::Java,
+        }
+    }
+
+    pub fn protocol(self) -> &'static str {
+        match self {
+            Self::Java => "tcp",
+            Self::Udp | Self::Bedrock | Self::BedrockRaknet => "udp",
+        }
+    }
+
+    /// Human readable name used in the UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Java => "TCP",
+            Self::Udp => "UDP",
+            Self::Bedrock => "Bedrock",
+            Self::BedrockRaknet => "Bedrock (Raknet)",
+        }
+    }
+
+    /// Title shown for tunnels that do not have a user supplied label.
+    pub fn title(self) -> Option<&'static str> {
+        match self {
+            Self::Java => None,
+            Self::Udp => Some("UDP tunnel"),
+            Self::Bedrock => Some("Bedrock tunnel"),
+            Self::BedrockRaknet => Some("Bedrock tunnel (Raknet)"),
+        }
+    }
+}
+
+/// Resolve a stored tunnel config to a playit tunnel kind.
+///
+/// Older Carabiner versions stored Bedrock/RakNet tunnels with the plain
+/// `UDP` protocol and no explicit type. Keep treating those as RakNet so
+/// existing tunnels stay associated with their configs.
+pub fn kind_from_config(protocol: &str, tunnel_type: &str) -> TunnelKind {
+    let explicit = tunnel_type.trim().to_lowercase();
+    if !explicit.is_empty() {
+        return TunnelKind::from_key(&explicit);
+    }
+
+    match protocol.trim().to_lowercase().as_str() {
+        "tcp" => TunnelKind::Java,
+        "udp" => TunnelKind::BedrockRaknet,
+        _ => TunnelKind::Java,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PlayitTunnel {
     pub id: String,
+    pub name: String,
     pub tunnel_type: String,
+    pub raw_tunnel_type: Option<String>,
+    pub nethernet_token: String,
     pub protocol: String,
     pub status: String,
     pub region: String,
@@ -63,10 +150,22 @@ impl PlayitTunnel {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let tunnel_type = tunnel_data
+        let name = tunnel_data
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let raw_tunnel_type = tunnel_data
             .get("tunnel_type")
             .and_then(Value::as_str)
-            .unwrap_or("both")
+            .map(str::to_string);
+        let tunnel_type = raw_tunnel_type
+            .clone()
+            .unwrap_or_else(|| "both".to_string());
+        let nethernet_token = tunnel_data
+            .get("nethernet_token")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
             .to_string();
         let protocol = tunnel_data
             .get("port_type")
@@ -82,7 +181,10 @@ impl PlayitTunnel {
 
         let mut tunnel = Self {
             id,
+            name,
             tunnel_type,
+            raw_tunnel_type,
+            nethernet_token,
             protocol,
             status,
             region: String::new(),
@@ -150,7 +252,24 @@ impl PlayitTunnel {
             .and_then(Value::as_u64)
             .and_then(|port| u16::try_from(port).ok());
 
-        if tunnel.tunnel_type == "both" {
+        if tunnel.nethernet_token.is_empty() {
+            let cached = parent.tunnel_cache.get_tunnel(&tunnel.id);
+            tunnel.nethernet_token = cached
+                .get("nethernet_token")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+        }
+
+        if tunnel.raw_tunnel_type.as_deref() == Some(NETHERNET_TUNNEL_TYPE) {
+            // NetherNet clients always connect on 19132; the allocated
+            // public UDP port is only used for the agent's forwarding.
+            tunnel.hostname = if tunnel.domain.is_empty() {
+                String::new()
+            } else {
+                format!("{}:{NETHERNET_CONNECT_PORT}", tunnel.domain)
+            };
+        } else if tunnel.tunnel_type == "both" {
             if let Some(remote_port) = tunnel.remote_port {
                 tunnel.hostname = format!("{}:{remote_port}", tunnel.domain);
             }
@@ -159,12 +278,36 @@ impl PlayitTunnel {
         }
 
         if let Some(raw_date) = tunnel_data.get("created_at").and_then(Value::as_str)
-            && let Ok(date) = DateTime::parse_from_rfc3339(&raw_date.replace('Z', "+00:00"))
+            && let Ok(date) = DateTime::parse_from_rfc3339(&raw_date.replace("Z", "+00:00"))
         {
             tunnel.created = date.with_timezone(&Local);
         }
 
         tunnel
+    }
+
+    pub fn kind(&self) -> TunnelKind {
+        match self.raw_tunnel_type.as_deref() {
+            Some(NETHERNET_TUNNEL_TYPE) => TunnelKind::Bedrock,
+            Some("minecraft-bedrock") => TunnelKind::BedrockRaknet,
+            Some("minecraft-java") => TunnelKind::Java,
+            Some(_) => {
+                if self.protocol.eq_ignore_ascii_case("tcp") {
+                    TunnelKind::Java
+                } else {
+                    TunnelKind::Udp
+                }
+            }
+            // Raw tunnels report no tunnel_type. playit's "both" pseudo type
+            // is also used for tunnels that accept both protocols.
+            None => {
+                if self.protocol.eq_ignore_ascii_case("tcp") {
+                    TunnelKind::Java
+                } else {
+                    TunnelKind::Udp
+                }
+            }
+        }
     }
 }
 
@@ -353,10 +496,20 @@ impl PlayitManager {
 
     pub fn binary_path(&self) -> PathBuf {
         self.directory.join(if cfg!(target_os = "windows") {
-            "playit.exe"
+            "playitd.exe"
         } else {
             "playit"
         })
+    }
+
+    fn version_marker_path(&self) -> PathBuf {
+        self.directory.join(".playit-version")
+    }
+
+    fn installed_version_matches(&self) -> bool {
+        fs::read_to_string(self.version_marker_path())
+            .map(|value| value.trim() == PLAYIT_AGENT_VERSION)
+            .unwrap_or(false)
     }
 
     pub fn resolve_binary(&self) -> Option<String> {
@@ -379,6 +532,29 @@ impl PlayitManager {
             .get(protocol)
             .cloned()
             .unwrap_or_default()
+    }
+
+    pub fn all_tunnels(&self) -> Vec<PlayitTunnel> {
+        self.return_single_list()
+    }
+
+    pub fn tunnels_for_kind(&self, kind: TunnelKind) -> Vec<PlayitTunnel> {
+        self.return_single_list()
+            .into_iter()
+            .filter(|tunnel| tunnel.kind() == kind)
+            .collect()
+    }
+
+    pub fn tunnel_for(&self, port: u16, kind: TunnelKind) -> Option<PlayitTunnel> {
+        self.tunnels_for_kind(kind)
+            .into_iter()
+            .find(|tunnel| tunnel.port == Some(port) && !tunnel.hostname.is_empty())
+    }
+
+    /// Refresh the tunnel list from playit without changing agent state.
+    pub fn refresh_tunnels(&self) -> Vec<PlayitTunnel> {
+        self.retrieve_tunnels();
+        self.all_tunnels()
     }
 
     fn set_status(&self, status: &str) {
@@ -524,22 +700,14 @@ impl PlayitManager {
     }
 
     pub fn secret_path(&self) -> Option<PathBuf> {
-        let binary = self.resolve_binary()?;
-        let output = Command::new(binary)
-            .args(["--stdout", "secret-path"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .ok()?;
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if text.is_empty() {
-            return None;
+        // v1.x splits playit into a daemon (playit) and a CLI (playit-cli).
+        // The daemon has no `secret-path` subcommand, so Carabiner always
+        // reads and writes its own playit.toml.
+        if self.toml_path.exists() {
+            Some(self.toml_path.clone())
+        } else {
+            None
         }
-        text.lines()
-            .last()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(PathBuf::from)
     }
 
     pub fn read_claimed_secret(&self) -> String {
@@ -598,38 +766,88 @@ impl PlayitManager {
     }
 
     fn detect_version(&self, binary: &str) -> (u64, u64, u64) {
-        let output = Command::new(binary)
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output();
-        if let Ok(output) = output {
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if let Some(captures) = VERSION_RE.captures(&text) {
-                let major = captures
-                    .get(1)
-                    .and_then(|m| m.as_str().parse().ok())
-                    .unwrap_or(0);
-                let minor = captures
-                    .get(2)
-                    .and_then(|m| m.as_str().parse().ok())
-                    .unwrap_or(17);
-                let patch = captures
-                    .get(3)
-                    .and_then(|m| m.as_str().parse().ok())
-                    .unwrap_or(1);
-                return (major, minor, patch);
+        // The v1.x daemon has no version flag; Carabiner records the release
+        // it installed in .playit-version. Fall back to probing the binary
+        // for older releases that still supported `version`/`--version`.
+        if let Ok(text) = fs::read_to_string(self.version_marker_path())
+            && let Some(captures) = VERSION_RE.captures(text.trim())
+        {
+            let major = captures
+                .get(1)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(PLAYIT_AGENT_VERSION_NUMBER.0);
+            let minor = captures
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(PLAYIT_AGENT_VERSION_NUMBER.1);
+            let patch = captures
+                .get(3)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(PLAYIT_AGENT_VERSION_NUMBER.2);
+            return (major, minor, patch);
+        }
+
+        for args in [["version"].as_slice(), ["--version"].as_slice()] {
+            let output = Command::new(binary)
+                .args(args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output();
+            if let Ok(output) = output {
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if let Some(captures) = VERSION_RE.captures(&text) {
+                    let major = captures
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(PLAYIT_AGENT_VERSION_NUMBER.0);
+                    let minor = captures
+                        .get(2)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(PLAYIT_AGENT_VERSION_NUMBER.1);
+                    let patch = captures
+                        .get(3)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(PLAYIT_AGENT_VERSION_NUMBER.2);
+                    return (major, minor, patch);
+                }
             }
         }
-        (0, 17, 1)
+        PLAYIT_AGENT_VERSION_NUMBER
+    }
+
+    fn ensure_pinned_binary(&self, auto_install: bool) -> (bool, String) {
+        let mut binary = self.resolve_binary();
+        if binary.is_none() && auto_install {
+            let (ok, msg) = self.install_latest_binary(None);
+            if !ok {
+                return (false, format!("playit install failed: {msg}"));
+            }
+            binary = self.resolve_binary();
+        }
+        if binary.is_none() {
+            return (false, "playit binary not found".to_string());
+        }
+
+        if !self.installed_version_matches() {
+            let (ok, msg) = self.install_latest_binary(None);
+            if !ok {
+                return (
+                    false,
+                    format!("Failed to install playit {PLAYIT_AGENT_VERSION}: {msg}"),
+                );
+            }
+        }
+
+        (true, String::new())
     }
 
     pub fn install_latest_binary(
         &self,
         progress: Option<Box<dyn Fn(u64, u64) + Send + 'static>>,
     ) -> (bool, String) {
-        let release_url =
-            "https://api.github.com/repos/playit-cloud/playit-agent/releases/tags/v0.17.1";
+        let release_url = format!(
+            "https://api.github.com/repos/playit-cloud/playit-agent/releases/tags/{PLAYIT_AGENT_VERSION}"
+        );
         let response = self
             .client
             .get(release_url)
@@ -753,6 +971,11 @@ impl PlayitManager {
             return (false, e);
         }
 
+        if let Some(parent) = self.version_marker_path().parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(self.version_marker_path(), PLAYIT_AGENT_VERSION);
+
         (true, target.to_string_lossy().to_string())
     }
 
@@ -763,6 +986,8 @@ impl PlayitManager {
         let arch_keys: Vec<&str> = match machine.as_str() {
             "x86_64" | "amd64" => vec!["amd64", "x86_64", "x64"],
             "aarch64" | "arm64" => vec!["aarch64", "arm64"],
+            "arm" | "armv7" | "armv7l" => vec!["armv7", "arm"],
+            "x86" | "i686" | "i386" => vec!["i686", "i386", "x86"],
             _ => vec![machine.as_str()],
         };
 
@@ -781,7 +1006,21 @@ impl PlayitManager {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_lowercase();
-            if name.is_empty() || name.ends_with(".sha256") || name.ends_with(".sig") {
+            if name.is_empty()
+                || name.ends_with(".sha256")
+                || name.ends_with(".sig")
+                || name.ends_with(".apk")
+                || name.ends_with(".deb")
+                || name.ends_with(".rpm")
+                || name.ends_with(".msi")
+            {
+                continue;
+            }
+            // v1.x ships a CLI and a daemon. Carabiner needs the daemon.
+            if name.contains("playit-cli") {
+                continue;
+            }
+            if sys_name.contains("windows") && !name.starts_with("playitd-windows-") {
                 continue;
             }
             if !os_keys.iter().any(|key| name.contains(key)) {
@@ -807,7 +1046,11 @@ impl PlayitManager {
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_lowercase();
-                if name.starts_with("playit-linux") && !name.ends_with(".sha256") {
+                if name.starts_with("playit-linux")
+                    && !name.contains("playit-cli")
+                    && !name.ends_with(".apk")
+                    && !name.ends_with(".sha256")
+                {
                     return Some(asset.clone());
                 }
             }
@@ -1109,8 +1352,21 @@ impl PlayitManager {
             .unwrap_or_default();
 
         let mut tunnels = empty_tunnel_map();
+        let mut seen_ids = std::collections::HashSet::new();
         for tunnel_data in tunnel_items {
             let tunnel = PlayitTunnel::from_value(self, &tunnel_data);
+            if !tunnel.id.is_empty() && !seen_ids.insert(tunnel.id.clone()) {
+                // The API sometimes echoes the same tunnel twice (e.g. right
+                // after create/delete). Keep the non-pending record.
+                if tunnel.status != "pending"
+                    && let Some(bucket) = tunnels.get_mut(&tunnel.protocol)
+                    && let Some(existing) = bucket.iter_mut().find(|item| item.id == tunnel.id)
+                    && existing.status == "pending"
+                {
+                    *existing = tunnel;
+                }
+                continue;
+            }
             let key = if tunnels.contains_key(&tunnel.protocol) {
                 tunnel.protocol.clone()
             } else {
@@ -1171,31 +1427,12 @@ impl PlayitManager {
         default_port
     }
 
-    fn create_tunnel(
-        &self,
-        mut port: u16,
-        protocol: &str,
-        label: &str,
-    ) -> Result<Option<PlayitTunnel>, String> {
-        if !(1024..65535).contains(&port) {
-            port = match protocol {
-                "udp" => 19132,
-                _ => 25565,
-            };
-        }
-
-        if !self.check_tunnel_limit() {
-            return Err(format!(
-                "This account cannot create more than {} tunnel(s)",
-                self.max_tunnels
-            ));
-        }
-
-        let tunnel_type = match protocol {
-            "tcp" => Value::String("minecraft-java".to_string()),
-            "udp" => Value::String("minecraft-bedrock".to_string()),
-            "both" => Value::Null,
-            _ => Value::String("minecraft-java".to_string()),
+    fn tunnel_name(&self, label: &str, kind: TunnelKind, port: u16) -> String {
+        let suffix = match kind {
+            TunnelKind::Java => "tcp",
+            TunnelKind::Udp => "udp",
+            TunnelKind::Bedrock => "bedrock",
+            TunnelKind::BedrockRaknet => "bedrock-raknet",
         };
 
         let mut safe_label = SAFE_LABEL_RE
@@ -1216,7 +1453,41 @@ impl PlayitManager {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_secs() % 100000)
             .unwrap_or_default();
-        let tunnel_name = format!("{safe_label}-{protocol}-{port}-{timestamp}");
+        format!("{safe_label}-{suffix}-{port}-{timestamp}")
+    }
+
+    fn wait_for_created_tunnel(&self, tunnel_id: &str, kind: TunnelKind) -> Option<PlayitTunnel> {
+        for _ in 0..30 {
+            self.retrieve_tunnels();
+            for tunnel in self.all_tunnels() {
+                if tunnel.id == tunnel_id && tunnel.kind() == kind && !tunnel.hostname.is_empty() {
+                    return Some(tunnel);
+                }
+            }
+            thread::sleep(Duration::from_secs(1));
+        }
+        None
+    }
+
+    fn create_tunnel(
+        &self,
+        mut port: u16,
+        kind: TunnelKind,
+        label: &str,
+    ) -> Result<Option<PlayitTunnel>, String> {
+        if !(1024..65535).contains(&port) {
+            port = match kind {
+                TunnelKind::Java => 25565,
+                _ => 19132,
+            };
+        }
+
+        if !self.check_tunnel_limit() {
+            return Err(format!(
+                "This account cannot create more than {} tunnel(s)",
+                self.max_tunnels
+            ));
+        }
 
         let agent_id = self
             .state
@@ -1225,27 +1496,95 @@ impl PlayitManager {
             .agent_id
             .clone()
             .unwrap_or_default();
-        let tunnel_data = json!({
-            "name": tunnel_name,
-            "tunnel_type": tunnel_type,
-            "port_type": protocol,
-            "port_count": if protocol == "both" { 2 } else { 1 },
-            "enabled": true,
-            "origin": {
-                "type": "agent",
-                "data": {
-                    "agent_id": agent_id,
-                    "local_ip": "127.0.0.1",
-                    "local_port": port,
-                },
-            },
-        });
+        let tunnel_name = self.tunnel_name(label, kind, port);
 
         self.set_status("creating");
         let result = (|| {
-            let data = self
-                .request("tunnels/create", Some(tunnel_data.clone()))
-                .ok()?;
+            let (endpoint, tunnel_data) = match kind {
+                TunnelKind::Java | TunnelKind::BedrockRaknet => {
+                    let protocol = kind.protocol();
+                    let tunnel_type = match kind {
+                        TunnelKind::Java => "minecraft-java",
+                        _ => "minecraft-bedrock",
+                    };
+                    let tunnel_data = json!({
+                        "name": tunnel_name,
+                        "tunnel_type": tunnel_type,
+                        "port_type": protocol,
+                        "port_count": 1,
+                        "enabled": true,
+                        "origin": {
+                            "type": "agent",
+                            "data": {
+                                "agent_id": agent_id,
+                                "local_ip": "127.0.0.1",
+                                "local_port": port,
+                            },
+                        },
+                    });
+                    ("tunnels/create", tunnel_data)
+                }
+                TunnelKind::Bedrock => {
+                    let tunnel_data = json!({
+                        "name": tunnel_name,
+                        "protocol": {
+                            "type": "tunnel-type",
+                            "details": NETHERNET_TUNNEL_TYPE,
+                        },
+                        "origin": {
+                            "type": "agent",
+                            "data": {
+                                "agent_id": agent_id,
+                                "config": {
+                                    "fields": [
+                                        { "name": "local_ip", "value": "127.0.0.1" },
+                                        { "name": "local_port", "value": port.to_string() },
+                                    ],
+                                },
+                            },
+                        },
+                        "endpoint": {
+                            "type": "region",
+                            "details": { "region": "global", "port": null },
+                        },
+                        "enabled": true,
+                    });
+                    ("v1/tunnels/create", tunnel_data)
+                }
+                TunnelKind::Udp => {
+                    let tunnel_data = json!({
+                        "name": tunnel_name,
+                        "protocol": {
+                            "type": "raw-ports",
+                            "details": {
+                                "port_type": "udp",
+                                "port_count": 1,
+                                "software_description": "Plain UDP traffic",
+                            },
+                        },
+                        "origin": {
+                            "type": "agent",
+                            "data": {
+                                "agent_id": agent_id,
+                                "config": {
+                                    "fields": [
+                                        { "name": "local_ip", "value": "127.0.0.1" },
+                                        { "name": "local_port", "value": port.to_string() },
+                                    ],
+                                },
+                            },
+                        },
+                        "endpoint": {
+                            "type": "region",
+                            "details": { "region": "global", "port": null },
+                        },
+                        "enabled": true,
+                    });
+                    ("v1/tunnels/create", tunnel_data)
+                }
+            };
+
+            let data = self.request(endpoint, Some(tunnel_data.clone())).ok()?;
             let tunnel_id = data
                 .get("data")
                 .and_then(|data| data.get("id"))
@@ -1256,18 +1595,27 @@ impl PlayitManager {
                 return None;
             }
 
-            self.tunnel_cache.add_tunnel(&tunnel_id, tunnel_data);
+            // Normalize the cached entry so tunnel metadata can be recovered
+            // when the API omits origin details.
+            let cache_entry = json!({
+                "name": tunnel_name,
+                "tunnel_type": match kind {
+                    TunnelKind::Java => Value::String("minecraft-java".to_string()),
+                    TunnelKind::BedrockRaknet => Value::String("minecraft-bedrock".to_string()),
+                    TunnelKind::Bedrock => Value::String(NETHERNET_TUNNEL_TYPE.to_string()),
+                    TunnelKind::Udp => Value::Null,
+                },
+                "port_type": kind.protocol(),
+                "origin": {
+                    "data": {
+                        "local_ip": "127.0.0.1",
+                        "local_port": port,
+                    },
+                },
+            });
+            self.tunnel_cache.add_tunnel(&tunnel_id, cache_entry);
 
-            for _ in 0..30 {
-                self.retrieve_tunnels();
-                for tunnel in self.tunnels_for(protocol) {
-                    if tunnel.id == tunnel_id && !tunnel.hostname.is_empty() {
-                        return Some(tunnel);
-                    }
-                }
-                thread::sleep(Duration::from_secs(1));
-            }
-            None
+            self.wait_for_created_tunnel(&tunnel_id, kind)
         })();
 
         if self.is_running() {
@@ -1296,16 +1644,30 @@ impl PlayitManager {
         true
     }
 
-    pub fn delete_tunnels(&self, port: u16, protocol: &str) -> usize {
+    pub fn delete_tunnels_for_kind(&self, port: u16, kind: TunnelKind) -> usize {
         self.retrieve_tunnels();
-        let bucket = self.tunnels_for(protocol);
         let mut deleted_count = 0;
-        for tunnel in bucket {
+        for tunnel in self.tunnels_for_kind(kind) {
             if tunnel.port == Some(port) && self.delete_tunnel(&tunnel) {
                 deleted_count += 1;
             }
         }
         deleted_count
+    }
+
+    pub fn delete_tunnels(&self, port: u16, protocol: &str) -> usize {
+        let kind = kind_from_config(protocol, "");
+        self.delete_tunnels_for_kind(port, kind)
+    }
+
+    pub fn delete_tunnel_by_id(&self, tunnel_id: &str) -> bool {
+        self.retrieve_tunnels();
+        for tunnel in self.all_tunnels() {
+            if tunnel.id == tunnel_id {
+                return self.delete_tunnel(&tunnel);
+            }
+        }
+        false
     }
 
     pub fn get_tunnel(
@@ -1315,9 +1677,20 @@ impl PlayitManager {
         ensure: bool,
         label: &str,
     ) -> Result<Option<PlayitTunnel>, String> {
+        let kind = kind_from_config(protocol, "");
+        self.get_tunnel_for_kind(port, kind, ensure, label)
+    }
+
+    pub fn get_tunnel_for_kind(
+        &self,
+        port: u16,
+        kind: TunnelKind,
+        ensure: bool,
+        label: &str,
+    ) -> Result<Option<PlayitTunnel>, String> {
         self.retrieve_tunnels();
 
-        for tunnel in self.tunnels_for(protocol) {
+        for tunnel in self.tunnels_for_kind(kind) {
             if tunnel.port == Some(port) && !tunnel.in_use {
                 if !tunnel.hostname.is_empty() {
                     return Ok(Some(tunnel));
@@ -1343,15 +1716,23 @@ impl PlayitManager {
             }
         }
 
-        self.create_tunnel(port, protocol, label)
+        self.create_tunnel(port, kind, label)
     }
 
-    fn start_agent_service(self: &Arc<Self>, binary: &str) -> (bool, String) {
+    fn start_agent_service(self: &Arc<Self>, _binary: &str) -> (bool, String) {
         if self.is_running() {
             return (true, String::new());
         }
 
-        if let Err(e) = util::check_binary_integrity(Path::new(binary)) {
+        let (ok, msg) = self.ensure_pinned_binary(true);
+        if !ok {
+            return (false, msg);
+        }
+        let Some(binary) = self.resolve_binary() else {
+            return (false, "playit binary not found".to_string());
+        };
+
+        if let Err(e) = util::check_binary_integrity(Path::new(&binary)) {
             let (ok, msg) = self.install_latest_binary(None);
             if !ok {
                 return (
@@ -1371,13 +1752,30 @@ impl PlayitManager {
             return self.start_agent_service(&binary);
         }
 
-        let mut command = Command::new(binary);
+        let mut command = Command::new(&binary);
         command
-            .args(["-s", "--secret_path", &self.toml_path.to_string_lossy()])
+            .arg("--secret-path")
+            .arg(&self.toml_path)
             .current_dir(&self.directory)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(target_os = "windows")]
+        {
+            command
+                .arg("--socket-path")
+                .arg(format!(r"\\.\pipe\carabiner-playit-{}", std::process::id()));
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Without an explicit socket path the daemon fails to bind on
+            // systems where its default IPC directory does not exist.
+            let socket_path = self.directory.join("playit.sock");
+            let _ = fs::remove_file(&socket_path);
+            command.arg("--socket-path").arg(&socket_path);
+        }
+
         util::command_no_window(&mut command);
         util::disable_setuid_on_child(&mut command);
 
@@ -1408,17 +1806,10 @@ impl PlayitManager {
             return (true, "playit is already running".to_string());
         }
 
-        let mut binary = self.resolve_binary();
-        if binary.is_none() && auto_install {
-            let (ok, msg) = self.install_latest_binary(None);
-            if !ok {
-                return (false, format!("playit install failed: {msg}"));
-            }
-            binary = self.resolve_binary();
+        let (ok, msg) = self.ensure_pinned_binary(auto_install);
+        if !ok {
+            return (false, msg);
         }
-        let Some(binary) = binary else {
-            return (false, "playit binary not found".to_string());
-        };
 
         self.set_status("starting");
         let provided_secret = secret.trim();
@@ -1485,7 +1876,7 @@ impl PlayitManager {
             self.emit_endpoint_changed();
         }
 
-        let (ok, msg) = self.start_agent_service(&binary);
+        let (ok, msg) = self.start_agent_service("");
         if !ok {
             self.mark_tunnel_in_use(&tunnel.id, false);
             self.state.lock().unwrap().active_tunnel_id = None;
@@ -1505,19 +1896,10 @@ impl PlayitManager {
             return (true, "playit agent is already running".to_string());
         }
 
-        let binary = match self.resolve_binary() {
-            Some(b) => b,
-            None => {
-                let (ok, msg) = self.install_latest_binary(None);
-                if !ok {
-                    return (false, format!("Failed to install playit: {msg}"));
-                }
-                match self.resolve_binary() {
-                    Some(b) => b,
-                    None => return (false, "playit binary not found after download".to_string()),
-                }
-            }
-        };
+        let (ok, msg) = self.ensure_pinned_binary(true);
+        if !ok {
+            return (false, format!("Failed to install playit: {msg}"));
+        }
 
         self.set_status("starting");
 
@@ -1552,9 +1934,10 @@ impl PlayitManager {
         let tunnel_configs = tunnel_configs.unwrap_or_else(tunnel_store::load_tunnels);
         for config in tunnel_configs {
             if config.provider.to_lowercase() == "playit" {
-                let _ = self.get_tunnel(
+                let kind = kind_from_config(&config.protocol, &config.tunnel_type);
+                let _ = self.get_tunnel_for_kind(
                     config.port,
-                    &config.protocol.to_lowercase(),
+                    kind,
                     true,
                     if config.label.is_empty() {
                         "carabiner"
@@ -1565,7 +1948,7 @@ impl PlayitManager {
             }
         }
 
-        let (ok, msg) = self.start_agent_service(&binary);
+        let (ok, msg) = self.start_agent_service("");
         if !ok {
             self.set_status("stopped");
             return (false, msg);
@@ -1577,16 +1960,9 @@ impl PlayitManager {
     }
 
     fn ensure_api_ready(&self, secret: &str, auto_install: bool) -> (bool, String) {
-        let mut binary = self.resolve_binary();
-        if binary.is_none() && auto_install {
-            let (ok, msg) = self.install_latest_binary(None);
-            if !ok {
-                return (false, format!("playit install failed: {msg}"));
-            }
-            binary = self.resolve_binary();
-        }
-        if binary.is_none() {
-            return (false, "playit binary not found".to_string());
+        let (ok, msg) = self.ensure_pinned_binary(auto_install);
+        if !ok {
+            return (false, msg);
         }
 
         let provided_secret = secret.trim();
@@ -1635,19 +2011,28 @@ impl PlayitManager {
         }
     }
 
-    fn list_tunnels_for_port(&self, port: u16, protocol: &str) -> Vec<PlayitTunnel> {
+    fn list_tunnels_for_kind(&self, port: u16, kind: TunnelKind) -> Vec<PlayitTunnel> {
         self.retrieve_tunnels();
-        self.tunnels_for(protocol)
+        self.tunnels_for_kind(kind)
             .into_iter()
             .filter(|tunnel| tunnel.port == Some(port))
             .collect()
     }
 
-    fn add_tunnel_for_protocol(
+    fn kind_display(kind: TunnelKind) -> &'static str {
+        match kind {
+            TunnelKind::Java => "Java",
+            TunnelKind::Udp => "UDP",
+            TunnelKind::Bedrock => "Bedrock",
+            TunnelKind::BedrockRaknet => "Bedrock (Raknet)",
+        }
+    }
+
+    fn add_tunnel_for_kind(
         &self,
         server_id: &str,
         server_dir: &str,
-        protocol: &str,
+        kind: TunnelKind,
         secret: &str,
         auto_install: bool,
         bedrock_port: u16,
@@ -1657,14 +2042,15 @@ impl PlayitManager {
             return (false, msg, String::new());
         }
 
-        let port = self.resolve_tunnel_port(server_dir, protocol, bedrock_port);
-        let tunnel_label = if protocol == "tcp" {
-            server_id.to_string()
-        } else {
-            format!("{server_id}-bedrock")
+        let port = self.resolve_tunnel_port(server_dir, kind.protocol(), bedrock_port);
+        let tunnel_label = match kind {
+            TunnelKind::Java => server_id.to_string(),
+            TunnelKind::Udp => format!("{server_id}-udp"),
+            TunnelKind::Bedrock => format!("{server_id}-bedrock"),
+            TunnelKind::BedrockRaknet => format!("{server_id}-bedrock-raknet"),
         };
 
-        let tunnel = match self.get_tunnel(port, protocol, true, &tunnel_label) {
+        let tunnel = match self.get_tunnel_for_kind(port, kind, true, &tunnel_label) {
             Ok(tunnel) => tunnel,
             Err(msg) => return (false, msg, String::new()),
         };
@@ -1674,20 +2060,20 @@ impl PlayitManager {
                 false,
                 format!(
                     "failed to allocate a {} playit tunnel",
-                    protocol.to_uppercase()
+                    Self::kind_display(kind)
                 ),
                 String::new(),
             );
         };
 
         let endpoint = tunnel.hostname.trim().to_string();
-        let tunnel_name = if protocol == "tcp" { "Java" } else { "Bedrock" };
+        let tunnel_name = Self::kind_display(kind);
         if endpoint.is_empty() {
             (
                 true,
                 format!(
                     "{tunnel_name} tunnel created on {} port {port}",
-                    protocol.to_uppercase()
+                    kind.protocol().to_uppercase()
                 ),
                 String::new(),
             )
@@ -1700,11 +2086,11 @@ impl PlayitManager {
         }
     }
 
-    fn regenerate_tunnel_for_protocol(
+    fn regenerate_tunnel_for_kind(
         &self,
         server_id: &str,
         server_dir: &str,
-        protocol: &str,
+        kind: TunnelKind,
         secret: &str,
         auto_install: bool,
         bedrock_port: u16,
@@ -1714,8 +2100,8 @@ impl PlayitManager {
             return (false, msg, String::new());
         }
 
-        let port = self.resolve_tunnel_port(server_dir, protocol, bedrock_port);
-        let candidates = self.list_tunnels_for_port(port, protocol);
+        let port = self.resolve_tunnel_port(server_dir, kind.protocol(), bedrock_port);
+        let candidates = self.list_tunnels_for_kind(port, kind);
         let mut deleted_any = false;
         for tunnel in candidates {
             if self.delete_tunnel(&tunnel) {
@@ -1723,10 +2109,10 @@ impl PlayitManager {
             }
         }
 
-        let (ok, msg, endpoint) = self.add_tunnel_for_protocol(
+        let (ok, msg, endpoint) = self.add_tunnel_for_kind(
             server_id,
             server_dir,
-            protocol,
+            kind,
             secret,
             auto_install,
             bedrock_port,
@@ -1735,7 +2121,7 @@ impl PlayitManager {
             return (false, msg, String::new());
         }
 
-        let tunnel_name = if protocol == "tcp" { "Java" } else { "Bedrock" };
+        let tunnel_name = Self::kind_display(kind);
         if deleted_any && !endpoint.is_empty() {
             (
                 true,
@@ -1753,10 +2139,10 @@ impl PlayitManager {
         }
     }
 
-    fn delete_tunnel_for_protocol(
+    fn delete_tunnel_for_kind(
         &self,
         server_dir: &str,
-        protocol: &str,
+        kind: TunnelKind,
         secret: &str,
         auto_install: bool,
         bedrock_port: u16,
@@ -1766,9 +2152,9 @@ impl PlayitManager {
             return (false, msg);
         }
 
-        let port = self.resolve_tunnel_port(server_dir, protocol, bedrock_port);
-        let candidates = self.list_tunnels_for_port(port, protocol);
-        let tunnel_name = if protocol == "tcp" { "Java" } else { "Bedrock" };
+        let port = self.resolve_tunnel_port(server_dir, kind.protocol(), bedrock_port);
+        let candidates = self.list_tunnels_for_kind(port, kind);
+        let tunnel_name = Self::kind_display(kind);
         if candidates.is_empty() {
             return (
                 false,
@@ -1826,7 +2212,14 @@ impl PlayitManager {
         secret: &str,
         auto_install: bool,
     ) -> (bool, String, String) {
-        self.add_tunnel_for_protocol(server_id, server_dir, "tcp", secret, auto_install, 19132)
+        self.add_tunnel_for_kind(
+            server_id,
+            server_dir,
+            TunnelKind::Java,
+            secret,
+            auto_install,
+            19132,
+        )
     }
 
     pub fn regenerate_java_tunnel(
@@ -1836,10 +2229,10 @@ impl PlayitManager {
         secret: &str,
         auto_install: bool,
     ) -> (bool, String, String) {
-        self.regenerate_tunnel_for_protocol(
+        self.regenerate_tunnel_for_kind(
             server_id,
             server_dir,
-            "tcp",
+            TunnelKind::Java,
             secret,
             auto_install,
             19132,
@@ -1852,7 +2245,7 @@ impl PlayitManager {
         secret: &str,
         auto_install: bool,
     ) -> (bool, String) {
-        self.delete_tunnel_for_protocol(server_dir, "tcp", secret, auto_install, 19132)
+        self.delete_tunnel_for_kind(server_dir, TunnelKind::Java, secret, auto_install, 19132)
     }
 
     pub fn add_bedrock_tunnel(
@@ -1863,10 +2256,10 @@ impl PlayitManager {
         auto_install: bool,
         bedrock_port: u16,
     ) -> (bool, String, String) {
-        self.add_tunnel_for_protocol(
+        self.add_tunnel_for_kind(
             server_id,
             server_dir,
-            "udp",
+            TunnelKind::Bedrock,
             secret,
             auto_install,
             bedrock_port,
@@ -1881,10 +2274,10 @@ impl PlayitManager {
         auto_install: bool,
         bedrock_port: u16,
     ) -> (bool, String, String) {
-        self.regenerate_tunnel_for_protocol(
+        self.regenerate_tunnel_for_kind(
             server_id,
             server_dir,
-            "udp",
+            TunnelKind::Bedrock,
             secret,
             auto_install,
             bedrock_port,
@@ -1898,7 +2291,111 @@ impl PlayitManager {
         auto_install: bool,
         bedrock_port: u16,
     ) -> (bool, String) {
-        self.delete_tunnel_for_protocol(server_dir, "udp", secret, auto_install, bedrock_port)
+        self.delete_tunnel_for_kind(
+            server_dir,
+            TunnelKind::Bedrock,
+            secret,
+            auto_install,
+            bedrock_port,
+        )
+    }
+
+    pub fn add_udp_tunnel(
+        &self,
+        server_id: &str,
+        server_dir: &str,
+        secret: &str,
+        auto_install: bool,
+        udp_port: u16,
+    ) -> (bool, String, String) {
+        self.add_tunnel_for_kind(
+            server_id,
+            server_dir,
+            TunnelKind::Udp,
+            secret,
+            auto_install,
+            udp_port,
+        )
+    }
+
+    pub fn regenerate_udp_tunnel(
+        &self,
+        server_id: &str,
+        server_dir: &str,
+        secret: &str,
+        auto_install: bool,
+        udp_port: u16,
+    ) -> (bool, String, String) {
+        self.regenerate_tunnel_for_kind(
+            server_id,
+            server_dir,
+            TunnelKind::Udp,
+            secret,
+            auto_install,
+            udp_port,
+        )
+    }
+
+    pub fn delete_udp_tunnel(
+        &self,
+        server_dir: &str,
+        secret: &str,
+        auto_install: bool,
+        udp_port: u16,
+    ) -> (bool, String) {
+        self.delete_tunnel_for_kind(server_dir, TunnelKind::Udp, secret, auto_install, udp_port)
+    }
+
+    pub fn add_bedrock_raknet_tunnel(
+        &self,
+        server_id: &str,
+        server_dir: &str,
+        secret: &str,
+        auto_install: bool,
+        bedrock_port: u16,
+    ) -> (bool, String, String) {
+        self.add_tunnel_for_kind(
+            server_id,
+            server_dir,
+            TunnelKind::BedrockRaknet,
+            secret,
+            auto_install,
+            bedrock_port,
+        )
+    }
+
+    pub fn regenerate_bedrock_raknet_tunnel(
+        &self,
+        server_id: &str,
+        server_dir: &str,
+        secret: &str,
+        auto_install: bool,
+        bedrock_port: u16,
+    ) -> (bool, String, String) {
+        self.regenerate_tunnel_for_kind(
+            server_id,
+            server_dir,
+            TunnelKind::BedrockRaknet,
+            secret,
+            auto_install,
+            bedrock_port,
+        )
+    }
+
+    pub fn delete_bedrock_raknet_tunnel(
+        &self,
+        server_dir: &str,
+        secret: &str,
+        auto_install: bool,
+        bedrock_port: u16,
+    ) -> (bool, String) {
+        self.delete_tunnel_for_kind(
+            server_dir,
+            TunnelKind::BedrockRaknet,
+            secret,
+            auto_install,
+            bedrock_port,
+        )
     }
 
     pub fn stop(&self) -> (bool, String) {
