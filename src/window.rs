@@ -4,7 +4,7 @@ use crate::{
     managers::{
         ManagerHandle, get_manager_for_tunnel, get_provider_manager, get_shared_playit_manager,
         ngrok::NgrokManager,
-        playit::{PlayitManager, TunnelKind, kind_from_config},
+        playit::{PlayitManager, PlayitTunnel, TunnelKind, kind_from_config},
     },
     portal::{request_background, set_background_status},
     settings::{load_settings, save_settings},
@@ -16,9 +16,26 @@ use crate::{
     util::t,
 };
 use adw::prelude::*;
-use crossbeam_channel::{Receiver, unbounded};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use gtk::{gio, glib};
-use std::{cell::RefCell, rc::Rc, sync::Arc, thread, time::Duration};
+use once_cell::sync::Lazy;
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
+};
+
+static LIVE_PLAYIT_TUNNELS: Lazy<Mutex<Vec<TunnelConfig>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static PLAYIT_FETCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static PLAYIT_LAST_REFRESH: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+static PLAYIT_REFRESH_WAKE: Lazy<(Sender<()>, Receiver<()>)> = Lazy::new(unbounded);
+
+const PLAYIT_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
 
 fn set_switch_active(switch: &gtk::Switch, active: bool) {
     switch.set_active(active);
@@ -43,6 +60,105 @@ fn tunnel_title(config: &TunnelConfig) -> String {
     }
 
     format!("Port {} • {}", config.port, config.protocol)
+}
+
+fn playit_external_id(config: &TunnelConfig) -> Option<&str> {
+    config.id.strip_prefix("playit-agent:")
+}
+
+fn config_from_playit_tunnel(tunnel: &PlayitTunnel) -> TunnelConfig {
+    let kind = tunnel.kind();
+    TunnelConfig {
+        id: format!("playit-agent:{}", tunnel.id),
+        provider: "Playit".to_string(),
+        protocol: if kind == TunnelKind::Java {
+            "TCP".to_string()
+        } else {
+            "UDP".to_string()
+        },
+        port: tunnel.port.unwrap_or(0),
+        label: tunnel.name.clone(),
+        tunnel_type: kind.key().to_string(),
+        autostart: false,
+        public_url: tunnel.hostname.clone(),
+        extra: Default::default(),
+    }
+}
+
+fn live_playit_tunnels() -> Vec<TunnelConfig> {
+    LIVE_PLAYIT_TUNNELS.lock().unwrap().clone()
+}
+
+fn set_live_playit_tunnels(tunnels: Vec<TunnelConfig>) -> bool {
+    let mut current = LIVE_PLAYIT_TUNNELS.lock().unwrap();
+    if *current == tunnels {
+        return false;
+    }
+    *current = tunnels;
+    true
+}
+
+fn remove_live_playit_tunnel(config_id: &str) {
+    LIVE_PLAYIT_TUNNELS
+        .lock()
+        .unwrap()
+        .retain(|tunnel| tunnel.id != config_id);
+}
+
+fn playit_tunnel_represented(stored: &[TunnelConfig], live: &TunnelConfig) -> bool {
+    let live_kind = kind_from_config(&live.protocol, &live.tunnel_type);
+    stored.iter().any(|config| {
+        config.provider == "Playit"
+            && kind_from_config(&config.protocol, &config.tunnel_type) == live_kind
+            && (config.port == live.port
+                || (!config.public_url.is_empty() && config.public_url == live.public_url))
+    })
+}
+
+fn schedule_playit_tunnel_refresh(force: bool) {
+    if !force
+        && let Some(last) = *PLAYIT_LAST_REFRESH.lock().unwrap()
+        && last.elapsed() < PLAYIT_REFRESH_INTERVAL
+    {
+        return;
+    }
+
+    if PLAYIT_FETCH_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    thread::spawn(move || {
+        let manager = get_shared_playit_manager();
+        let mut fetched: Option<Vec<TunnelConfig>> = None;
+
+        if !manager.has_claimed_secret() {
+            fetched = Some(Vec::new());
+        } else {
+            if !manager.initialized() {
+                let _ = manager.initialize();
+            }
+            if manager.initialized() {
+                fetched = Some(
+                    manager
+                        .refresh_tunnels()
+                        .iter()
+                        .map(config_from_playit_tunnel)
+                        .collect(),
+                );
+            }
+        }
+
+        let mut changed = force;
+        if let Some(tunnels) = fetched {
+            changed |= set_live_playit_tunnels(tunnels);
+        }
+        *PLAYIT_LAST_REFRESH.lock().unwrap() = Some(Instant::now());
+        PLAYIT_FETCH_IN_FLIGHT.store(false, Ordering::SeqCst);
+
+        if changed {
+            let _ = PLAYIT_REFRESH_WAKE.0.send(());
+        }
+    });
 }
 
 fn show_message(parent: Option<&gtk::Window>, title: &str, body: &str) {
@@ -136,6 +252,13 @@ impl CarabinerWindow {
             quit_requested: Rc::new(RefCell::new(false)),
             release_background_hold,
         };
+
+        {
+            let this = this.clone();
+            drain_receiver(PLAYIT_REFRESH_WAKE.1.clone(), move |_| {
+                this.refresh_ui(None)
+            });
+        }
 
         {
             let this = this.clone();
@@ -272,7 +395,18 @@ impl CarabinerWindow {
             self.add_toast(&toast_msg);
         }
 
-        let tunnels = load_tunnels();
+        schedule_playit_tunnel_refresh(false);
+
+        let stored_tunnels = load_tunnels();
+        let mut tunnels = stored_tunnels.clone();
+        for live in live_playit_tunnels() {
+            if !playit_tunnel_represented(&stored_tunnels, &live)
+                && !tunnels.iter().any(|tunnel| tunnel.id == live.id)
+            {
+                tunnels.push(live);
+            }
+        }
+
         if tunnels.is_empty() {
             let status_page = adw::StatusPage::new();
             status_page.set_title(&t("No Tunnels"));
@@ -313,6 +447,20 @@ impl CarabinerWindow {
 
             if provider == "Playit" {
                 group.add(&PlayitAgentRow::new(&self.toast_overlay).row);
+
+                let refresh_row = adw::ActionRow::new();
+                refresh_row.set_title(&t("Refresh Tunnels"));
+                refresh_row.set_subtitle(&t("Show tunnels created on playit.gg"));
+                let refresh_btn = gtk::Button::builder()
+                    .icon_name("view-refresh-symbolic")
+                    .valign(gtk::Align::Center)
+                    .tooltip_text(t("Refresh Tunnels"))
+                    .build();
+                refresh_btn.add_css_class("flat");
+                refresh_row.add_suffix(&refresh_btn);
+                refresh_row.set_activatable_widget(Some(&refresh_btn));
+                refresh_btn.connect_clicked(move |_| schedule_playit_tunnel_refresh(true));
+                group.add(&refresh_row);
             }
 
             for config in tunnels.iter().filter(|tunnel| tunnel.provider == provider) {
@@ -665,6 +813,9 @@ impl PlayitAgentRow {
             drain_receiver(rx, move |event| {
                 if let ManagerEvent::StatusChanged(status) = event {
                     Self::update_status(&row, &spinner, &switch, &error_open, &status);
+                    if status == "running" || status == "stopped" {
+                        schedule_playit_tunnel_refresh(true);
+                    }
                     if let Some(msg) = status.strip_prefix("error:")
                         && !*error_open.borrow()
                     {
@@ -724,7 +875,9 @@ impl TunnelRow {
         row.set_title(&tunnel_title(&config));
         row.set_subtitle(&t("Stopped"));
 
-        let public_url = Rc::new(RefCell::new({
+        let public_url = Rc::new(RefCell::new(if config.provider == "Playit" {
+            config.public_url.clone()
+        } else {
             let endpoint = manager.public_endpoint();
             if endpoint.is_empty() {
                 config.public_url.clone()
@@ -984,7 +1137,24 @@ impl TunnelRow {
                 let config = config.clone();
                 let on_delete = on_delete.clone();
                 dialog.connect_response(Some("delete"), move |dialog, _| {
-                    remove_tunnel(&config.borrow().id);
+                    let config_id = config.borrow().id.clone();
+                    let external_tunnel_id =
+                        playit_external_id(&config.borrow()).map(str::to_string);
+                    if let Some(tunnel_id) = external_tunnel_id {
+                        remove_live_playit_tunnel(&config_id);
+                        *PLAYIT_LAST_REFRESH.lock().unwrap() = Some(Instant::now());
+                        let manager = get_shared_playit_manager();
+                        thread::spawn(move || {
+                            if !manager.initialized() {
+                                let _ = manager.initialize();
+                            }
+                            if manager.initialized() {
+                                let _ = manager.delete_tunnel_by_id(&tunnel_id);
+                            }
+                        });
+                    } else {
+                        remove_tunnel(&config_id);
+                    }
                     dialog.close();
                     on_delete(Some(t("Tunnel deleted")));
                 });
@@ -1138,11 +1308,13 @@ impl TunnelRowRefs {
 
         let local_port_row = adw::ActionRow::new();
         local_port_row.set_title(&t("Local Port"));
-        local_port_row.set_subtitle(&format!(
-            "Port {} • {}",
-            self.config.borrow().port,
-            self.config.borrow().protocol
-        ));
+        let local_port = self.config.borrow().port;
+        let local_protocol = self.config.borrow().protocol.clone();
+        local_port_row.set_subtitle(&if local_port == 0 {
+            local_protocol
+        } else {
+            format!("Port {local_port} • {local_protocol}")
+        });
         group.add(&local_port_row);
 
         let provider_row = adw::ActionRow::new();
@@ -1174,32 +1346,36 @@ impl TunnelRowRefs {
         group.add(&info_url_row);
         *self.info_url_row.borrow_mut() = Some(info_url_row.clone());
 
-        let label_row = adw::EntryRow::new();
-        label_row.set_title(&t("Label"));
-        label_row.set_text(&self.config.borrow().label);
-        label_row.set_show_apply_button(true);
-        {
-            let refs = self.clone();
-            let dialog = dialog.clone();
-            label_row.connect_apply(move |row| {
-                let new_label = row.text().trim().to_string();
-                update_tunnel_label(&refs.config.borrow().id, &new_label);
-                refs.config.borrow_mut().label = new_label;
-                refs.row.set_title(&tunnel_title(&refs.config.borrow()));
-                dialog.close();
-                if let Some(root) = refs.row.root()
-                    && let Ok(win) = root.downcast::<adw::ApplicationWindow>()
-                    && let Some(overlay) = win
-                        .content()
-                        .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
-                {
-                    add_toast(&overlay, &t("Label updated"));
-                }
-            });
+        if playit_external_id(&self.config.borrow()).is_none() {
+            let label_row = adw::EntryRow::new();
+            label_row.set_title(&t("Label"));
+            label_row.set_text(&self.config.borrow().label);
+            label_row.set_show_apply_button(true);
+            {
+                let refs = self.clone();
+                let dialog = dialog.clone();
+                label_row.connect_apply(move |row| {
+                    let new_label = row.text().trim().to_string();
+                    update_tunnel_label(&refs.config.borrow().id, &new_label);
+                    refs.config.borrow_mut().label = new_label;
+                    refs.row.set_title(&tunnel_title(&refs.config.borrow()));
+                    dialog.close();
+                    if let Some(root) = refs.row.root()
+                        && let Ok(win) = root.downcast::<adw::ApplicationWindow>()
+                        && let Some(overlay) = win
+                            .content()
+                            .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
+                    {
+                        add_toast(&overlay, &t("Label updated"));
+                    }
+                });
+            }
+            group.add(&label_row);
         }
-        group.add(&label_row);
 
-        if self.config.borrow().provider == "Playit" {
+        if self.config.borrow().provider == "Playit"
+            && playit_external_id(&self.config.borrow()).is_none()
+        {
             let cycle_row = adw::ActionRow::new();
             cycle_row.set_title(&t("Cycle Hostname"));
             cycle_row.set_subtitle(&t("Get a new public link"));

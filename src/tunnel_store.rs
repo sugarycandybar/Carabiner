@@ -17,7 +17,7 @@ fn tunnels_file() -> PathBuf {
     DATA_DIR.join("tunnels.json")
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TunnelConfig {
     pub id: String,
     pub provider: String,
