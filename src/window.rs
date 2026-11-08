@@ -114,6 +114,28 @@ fn remove_live_playit_tunnel(config_id: &str) {
         .retain(|tunnel| tunnel.id != config_id);
 }
 
+/// Update the cached live tunnel name after a successful rename.
+fn update_live_playit_tunnel_label(
+    external_id: Option<&str>,
+    port: u16,
+    kind: TunnelKind,
+    label: &str,
+) {
+    let mut tunnels = LIVE_PLAYIT_TUNNELS.lock().unwrap();
+    for tunnel in tunnels.iter_mut() {
+        let matches = match external_id {
+            Some(tunnel_id) => tunnel.id == format!("playit-agent:{tunnel_id}"),
+            None => {
+                kind_from_config(&tunnel.protocol, &tunnel.tunnel_type) == kind
+                    && tunnel.port == port
+            }
+        };
+        if matches {
+            tunnel.label = label.to_string();
+        }
+    }
+}
+
 fn playit_tunnel_matches(config: &TunnelConfig, live: &TunnelConfig) -> bool {
     config.provider == "Playit"
         && kind_from_config(&config.protocol, &config.tunnel_type)
@@ -241,6 +263,37 @@ fn toast_for_widget(widget: &impl IsA<gtk::Widget>, text: &str) {
     {
         add_toast(&overlay, text);
     }
+}
+
+/// Restore a scrolled window's position once its content has been allocated.
+fn restore_scroll_position(scrolled: &gtk::ScrolledWindow, position: f64) {
+    let scrolled = scrolled.clone();
+    let mut attempts = 0;
+    glib::timeout_add_local(Duration::from_millis(10), move || {
+        let adjustment = scrolled.vadjustment();
+        let max = (adjustment.upper() - adjustment.page_size()).max(0.0);
+        attempts += 1;
+        if max > 0.0 || attempts >= 20 {
+            adjustment.set_value(position.min(max));
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
+    });
+}
+
+fn find_scrolled_window(widget: &gtk::Widget) -> Option<gtk::ScrolledWindow> {
+    if let Some(scrolled) = widget.downcast_ref::<gtk::ScrolledWindow>() {
+        return Some(scrolled.clone());
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        if let Some(found) = find_scrolled_window(&widget) {
+            return Some(found);
+        }
+        child = widget.next_sibling();
+    }
+    None
 }
 
 fn drain_receiver<T: 'static, F: FnMut(T) + 'static>(receiver: Receiver<T>, mut on_msg: F) {
@@ -460,6 +513,13 @@ impl CarabinerWindow {
             self.add_toast(&toast_msg);
         }
 
+        let scroll_position = self
+            .toolbar_view
+            .content()
+            .and_then(|content| find_scrolled_window(&content))
+            .map(|scrolled| scrolled.vadjustment().value())
+            .filter(|value| *value > 0.0);
+
         schedule_playit_tunnel_refresh(false, None);
 
         let mut stored_tunnels = load_tunnels();
@@ -529,6 +589,11 @@ impl CarabinerWindow {
         }
 
         self.toolbar_view.set_content(Some(&page));
+        if let Some(scroll_position) = scroll_position
+            && let Some(scrolled) = find_scrolled_window(page.upcast_ref())
+        {
+            restore_scroll_position(&scrolled, scroll_position);
+        }
     }
 }
 
@@ -1245,8 +1310,19 @@ struct TunnelRowRefs {
 impl TunnelRowRefs {
     fn update_status_ui(&self, status: &str) {
         let is_playit = self.config.borrow().provider == "Playit";
+        let port = self.config.borrow().port;
+        let kind = kind_from_config(
+            &self.config.borrow().protocol,
+            &self.config.borrow().tunnel_type,
+        );
+        let is_creating = is_playit
+            && status == "creating"
+            && self
+                .manager
+                .as_playit()
+                .is_some_and(|playit| playit.is_creating(port, kind));
         let is_busy = if is_playit {
-            matches!(status, "creating" | "stopping")
+            is_creating
         } else {
             matches!(status, "starting" | "creating" | "stopping")
         };
@@ -1262,15 +1338,10 @@ impl TunnelRowRefs {
 
         if self.config.borrow().provider == "Playit"
             && let Some(playit) = self.manager.as_playit()
+            && let Some(tunnel) = playit.tunnel_for(port, kind)
         {
-            let kind = kind_from_config(
-                &self.config.borrow().protocol,
-                &self.config.borrow().tunnel_type,
-            );
-            if let Some(tunnel) = playit.tunnel_for(self.config.borrow().port, kind) {
-                *self.public_url.borrow_mut() = tunnel.hostname.clone();
-                update_tunnel_url(&self.config.borrow().id, &tunnel.hostname);
-            }
+            *self.public_url.borrow_mut() = tunnel.hostname.clone();
+            update_tunnel_url(&self.config.borrow().id, &tunnel.hostname);
         }
 
         let mut display_text = String::new();
@@ -1288,7 +1359,11 @@ impl TunnelRowRefs {
             } else if status == "starting" {
                 t("Starting...")
             } else if status == "creating" {
-                t("Creating tunnel...")
+                if is_playit && !is_creating {
+                    t("Starting...")
+                } else {
+                    t("Creating tunnel...")
+                }
             } else {
                 format!("{}...", capitalize(status))
             };
@@ -1431,9 +1506,10 @@ impl TunnelRowRefs {
                         let (tx, rx) = unbounded::<(bool, String)>();
                         let manager = refs.manager.as_playit();
                         let label = new_label.clone();
+                        let rename_external_id = external_id.clone();
                         thread::spawn(move || {
                             let ok = match manager {
-                                Some(manager) => match external_id {
+                                Some(manager) => match rename_external_id {
                                     Some(tunnel_id) => {
                                         manager.rename_tunnel_by_id(&tunnel_id, &label)
                                     }
@@ -1450,8 +1526,13 @@ impl TunnelRowRefs {
                                     let id = refs.config.borrow().id.clone();
                                     update_tunnel_playit_label(&id, &label);
                                 }
+                                update_live_playit_tunnel_label(
+                                    external_id.as_deref(),
+                                    port,
+                                    kind,
+                                    &label,
+                                );
                                 toast_for_widget(&refs.row, &t("Label updated"));
-                                schedule_playit_tunnel_refresh(true, None);
                             } else {
                                 refs.config.borrow_mut().label = old_label.clone();
                                 refs.row.set_title(&tunnel_title(&refs.config.borrow()));
@@ -1826,6 +1907,7 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
     btn_group.add(&save_btn);
 
     let provider = provider.to_string();
+    let save_btn_for_handler = save_btn.clone();
     save_btn.connect_clicked(move |_| {
         let port = port_spin.value() as u16;
         let selected = protocol_model
@@ -1834,17 +1916,68 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             .unwrap_or_else(|| "TCP".to_string());
         let label = label_row.text().trim().to_string();
         if provider == "Playit" {
-            let (protocol, tunnel_type) = match selected.as_str() {
-                "UDP" => ("UDP", TunnelKind::Udp.key()),
-                "Bedrock tunnel (Raknet)" => ("UDP", TunnelKind::BedrockRaknet.key()),
-                "Bedrock tunnel" => ("UDP", TunnelKind::Bedrock.key()),
-                _ => ("TCP", TunnelKind::Java.key()),
+            let (protocol, tunnel_type, kind) = match selected.as_str() {
+                "UDP" => ("UDP", TunnelKind::Udp.key(), TunnelKind::Udp),
+                "Bedrock tunnel (Raknet)" => (
+                    "UDP",
+                    TunnelKind::BedrockRaknet.key(),
+                    TunnelKind::BedrockRaknet,
+                ),
+                "Bedrock tunnel" => ("UDP", TunnelKind::Bedrock.key(), TunnelKind::Bedrock),
+                _ => ("TCP", TunnelKind::Java.key(), TunnelKind::Java),
             };
-            add_tunnel_with_type(&provider, protocol, tunnel_type, port, &label);
+            let provider = provider.clone();
+            let protocol = protocol.to_string();
+            let tunnel_type = tunnel_type.to_string();
+            let create_label = label.clone();
+            let save_btn = save_btn_for_handler.clone();
+            let on_saved = on_saved.clone();
+            save_btn.set_sensitive(false);
+
+            let (tx, rx) = unbounded::<(bool, String, String)>();
+            thread::spawn(move || {
+                let manager = get_shared_playit_manager();
+                if !manager.initialized() && !manager.initialize() {
+                    let _ = tx.send((
+                        false,
+                        "Failed to initialize the playit API session".to_string(),
+                        String::new(),
+                    ));
+                    return;
+                }
+                match manager.get_tunnel_for_kind(port, kind, true, &create_label) {
+                    Ok(Some(tunnel)) => {
+                        let _ = tx.send((true, String::new(), tunnel.hostname));
+                    }
+                    Ok(None) => {
+                        let _ = tx.send((
+                            false,
+                            "Failed to create the playit tunnel".to_string(),
+                            String::new(),
+                        ));
+                    }
+                    Err(msg) => {
+                        let _ = tx.send((false, msg, String::new()));
+                    }
+                }
+            });
+
+            drain_receiver(rx, move |(ok, msg, hostname)| {
+                if ok {
+                    let id = add_tunnel_with_type(&provider, &protocol, &tunnel_type, port, &label);
+                    if !hostname.is_empty() {
+                        update_tunnel_url(&id, &hostname);
+                    }
+                    on_saved(Some(t("Tunnel created")));
+                } else {
+                    save_btn.set_sensitive(true);
+                    show_error_for_widget(&save_btn, &t("Error"), &msg);
+                }
+            });
         } else {
             add_tunnel(&provider, &selected, port, &label);
+            on_saved(Some(t("Tunnel created")));
         }
-        on_saved(Some(t("Tunnel created")));
     });
 
     page

@@ -381,6 +381,7 @@ struct State {
     proto_key: Option<String>,
     secret_key: Option<String>,
     active_tunnel_id: Option<String>,
+    creating_tunnel: Option<(u16, TunnelKind)>,
     last_error: String,
     agent_web_url: String,
     tunnels: HashMap<String, Vec<PlayitTunnel>>,
@@ -426,6 +427,7 @@ impl PlayitManager {
                 proto_key: None,
                 secret_key: None,
                 active_tunnel_id: None,
+                creating_tunnel: None,
                 last_error: String::new(),
                 agent_web_url: String::new(),
                 tunnels,
@@ -461,6 +463,11 @@ impl PlayitManager {
 
     pub fn status(&self) -> String {
         self.state.lock().unwrap().status.clone()
+    }
+
+    /// Whether the tunnel matching `port` and `kind` is currently being created.
+    pub fn is_creating(&self, port: u16, kind: TunnelKind) -> bool {
+        self.state.lock().unwrap().creating_tunnel == Some((port, kind))
     }
 
     pub fn public_endpoint(&self) -> String {
@@ -1498,6 +1505,7 @@ impl PlayitManager {
             .unwrap_or_default();
         let tunnel_name = self.tunnel_name(label, kind, port);
 
+        self.state.lock().unwrap().creating_tunnel = Some((port, kind));
         self.set_status("creating");
         let result = (|| {
             let (endpoint, tunnel_data) = match kind {
