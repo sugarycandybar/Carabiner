@@ -1832,6 +1832,101 @@ fn setup_download_page(
     page
 }
 
+fn conflicting_tunnel<'a>(
+    tunnels: &'a [TunnelConfig],
+    provider: &str,
+    protocol: &str,
+    port: u16,
+) -> Option<&'a TunnelConfig> {
+    tunnels.iter().find(|tunnel| {
+        tunnel.provider.eq_ignore_ascii_case(provider)
+            && tunnel.port == port
+            && tunnel.protocol.eq_ignore_ascii_case(protocol)
+    })
+}
+
+fn find_conflicting_tunnel(provider: &str, protocol: &str, port: u16) -> Option<TunnelConfig> {
+    let mut tunnels = load_tunnels();
+    for live in live_playit_tunnels() {
+        if !tunnels.iter().any(|tunnel| tunnel.id == live.id) {
+            tunnels.push(live);
+        }
+    }
+    conflicting_tunnel(&tunnels, provider, protocol, port).cloned()
+}
+
+struct PendingTunnel {
+    provider: String,
+    protocol: String,
+    tunnel_type: String,
+    kind: TunnelKind,
+    port: u16,
+    label: String,
+}
+
+fn save_tunnel(tunnel: PendingTunnel, save_btn: gtk::Button, on_saved: Rc<dyn Fn(Option<String>)>) {
+    let PendingTunnel {
+        provider,
+        protocol,
+        tunnel_type,
+        kind,
+        port,
+        label,
+    } = tunnel;
+    if provider == "Playit" {
+        let create_label = if label.is_empty() {
+            "carabiner".to_string()
+        } else {
+            label.clone()
+        };
+        save_btn.set_sensitive(false);
+
+        let (tx, rx) = unbounded::<(bool, String, String)>();
+        thread::spawn(move || {
+            let manager = get_shared_playit_manager();
+            if !manager.initialized() && !manager.initialize() {
+                let _ = tx.send((
+                    false,
+                    "Failed to initialize the playit API session".to_string(),
+                    String::new(),
+                ));
+                return;
+            }
+            match manager.get_tunnel_for_kind(port, kind, true, &create_label) {
+                Ok(Some(tunnel)) => {
+                    let _ = tx.send((true, String::new(), tunnel.hostname));
+                }
+                Ok(None) => {
+                    let _ = tx.send((
+                        false,
+                        "Failed to create the playit tunnel".to_string(),
+                        String::new(),
+                    ));
+                }
+                Err(msg) => {
+                    let _ = tx.send((false, msg, String::new()));
+                }
+            }
+        });
+
+        drain_receiver(rx, move |(ok, msg, hostname)| {
+            if ok {
+                let id = add_tunnel_with_type(&provider, &protocol, &tunnel_type, port, &label);
+                if !hostname.is_empty() {
+                    update_tunnel_url(&id, &hostname);
+                }
+                on_saved(Some(t("Tunnel created")));
+            } else {
+                save_btn.set_sensitive(true);
+                show_error_for_widget(&save_btn, &t("Error"), &msg);
+            }
+        });
+    } else {
+        add_tunnel(&provider, &protocol, port, &label);
+        on_saved(Some(t("Tunnel created")));
+    }
+}
+
 fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> adw::NavigationPage {
     let toolbar_view = adw::ToolbarView::new();
     let page = adw::NavigationPage::new(&toolbar_view, &t("Tunnel Details"));
@@ -1915,72 +2010,100 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             .map(|s| s.to_string())
             .unwrap_or_else(|| "TCP".to_string());
         let label = label_row.text().trim().to_string();
-        if provider == "Playit" {
-            let (protocol, tunnel_type, kind) = match selected.as_str() {
-                "UDP" => ("UDP", TunnelKind::Udp.key(), TunnelKind::Udp),
+
+        let (protocol, tunnel_type, kind) = if provider == "Playit" {
+            match selected.as_str() {
+                "UDP" => (
+                    "UDP".to_string(),
+                    TunnelKind::Udp.key().to_string(),
+                    TunnelKind::Udp,
+                ),
                 "Bedrock tunnel (Raknet)" => (
-                    "UDP",
-                    TunnelKind::BedrockRaknet.key(),
+                    "UDP".to_string(),
+                    TunnelKind::BedrockRaknet.key().to_string(),
                     TunnelKind::BedrockRaknet,
                 ),
-                "Bedrock tunnel" => ("UDP", TunnelKind::Bedrock.key(), TunnelKind::Bedrock),
-                _ => ("TCP", TunnelKind::Java.key(), TunnelKind::Java),
-            };
-            let provider = provider.clone();
-            let protocol = protocol.to_string();
-            let tunnel_type = tunnel_type.to_string();
-            let create_label = if label.is_empty() {
-                "carabiner".to_string()
-            } else {
-                label.clone()
-            };
-            let save_btn = save_btn_for_handler.clone();
-            let on_saved = on_saved.clone();
-            save_btn.set_sensitive(false);
-
-            let (tx, rx) = unbounded::<(bool, String, String)>();
-            thread::spawn(move || {
-                let manager = get_shared_playit_manager();
-                if !manager.initialized() && !manager.initialize() {
-                    let _ = tx.send((
-                        false,
-                        "Failed to initialize the playit API session".to_string(),
-                        String::new(),
-                    ));
-                    return;
-                }
-                match manager.get_tunnel_for_kind(port, kind, true, &create_label) {
-                    Ok(Some(tunnel)) => {
-                        let _ = tx.send((true, String::new(), tunnel.hostname));
-                    }
-                    Ok(None) => {
-                        let _ = tx.send((
-                            false,
-                            "Failed to create the playit tunnel".to_string(),
-                            String::new(),
-                        ));
-                    }
-                    Err(msg) => {
-                        let _ = tx.send((false, msg, String::new()));
-                    }
-                }
-            });
-
-            drain_receiver(rx, move |(ok, msg, hostname)| {
-                if ok {
-                    let id = add_tunnel_with_type(&provider, &protocol, &tunnel_type, port, &label);
-                    if !hostname.is_empty() {
-                        update_tunnel_url(&id, &hostname);
-                    }
-                    on_saved(Some(t("Tunnel created")));
-                } else {
-                    save_btn.set_sensitive(true);
-                    show_error_for_widget(&save_btn, &t("Error"), &msg);
-                }
-            });
+                "Bedrock tunnel" => (
+                    "UDP".to_string(),
+                    TunnelKind::Bedrock.key().to_string(),
+                    TunnelKind::Bedrock,
+                ),
+                _ => (
+                    "TCP".to_string(),
+                    TunnelKind::Java.key().to_string(),
+                    TunnelKind::Java,
+                ),
+            }
         } else {
-            add_tunnel(&provider, &selected, port, &label);
-            on_saved(Some(t("Tunnel created")));
+            (
+                selected.clone(),
+                String::new(),
+                kind_from_config(&selected, ""),
+            )
+        };
+
+        let provider = provider.clone();
+        let save_btn = save_btn_for_handler.clone();
+        let on_saved = on_saved.clone();
+        let run = {
+            let provider = provider.clone();
+            let protocol = protocol.clone();
+            let tunnel_type = tunnel_type.clone();
+            let label = label.clone();
+            let save_btn = save_btn.clone();
+            let on_saved = on_saved.clone();
+            move || {
+                save_tunnel(
+                    PendingTunnel {
+                        provider,
+                        protocol,
+                        tunnel_type,
+                        kind,
+                        port,
+                        label,
+                    },
+                    save_btn,
+                    on_saved,
+                )
+            }
+        };
+
+        if let Some(existing) = find_conflicting_tunnel(&provider, &protocol, port) {
+            let existing_name = tunnel_title(&existing);
+            let body = t("A {provider} tunnel on port {port} using {protocol} already exists ({name}). Create another one?")
+                .replace("{provider}", &provider)
+                .replace("{port}", &port.to_string())
+                .replace("{protocol}", &protocol)
+                .replace("{name}", &existing_name);
+            let dialog = adw::AlertDialog::builder()
+                .heading(t("Tunnel Already Exists"))
+                .body(&body)
+                .build();
+            dialog.add_response("cancel", &t("Cancel"));
+            dialog.add_response("create", &t("Create Anyway"));
+            dialog.set_response_appearance("create", adw::ResponseAppearance::Suggested);
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+
+            let run = Rc::new(RefCell::new(Some(run)));
+            {
+                let run = run.clone();
+                dialog.connect_response(Some("create"), move |dialog, _| {
+                    dialog.close();
+                    if let Some(run) = run.borrow_mut().take() {
+                        run();
+                    }
+                });
+            }
+            dialog.connect_response(Some("cancel"), |dialog, _| {
+                dialog.close();
+            });
+            let parent = save_btn
+                .root()
+                .and_then(|root| root.downcast::<gtk::Window>().ok());
+            dialog.present(parent.as_ref());
+        } else {
+            run();
         }
     });
 
@@ -2272,5 +2395,15 @@ mod tests {
 
         assert!(!sync_stored_playit_labels(&mut stored, &live));
         assert!(stored[0].label.is_empty());
+    }
+
+    #[test]
+    fn detects_duplicate_provider_port_and_protocol() {
+        let tunnels = vec![playit_config("stored", 19132, "Bedrock", "bedrock")];
+
+        assert!(conflicting_tunnel(&tunnels, "Playit", "udp", 19132).is_some());
+        assert!(conflicting_tunnel(&tunnels, "Playit", "TCP", 19132).is_none());
+        assert!(conflicting_tunnel(&tunnels, "Playit", "UDP", 19133).is_none());
+        assert!(conflicting_tunnel(&tunnels, "Ngrok", "UDP", 19132).is_none());
     }
 }
