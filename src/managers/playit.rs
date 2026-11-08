@@ -1670,6 +1670,60 @@ impl PlayitManager {
         false
     }
 
+    pub fn rename_tunnel_by_id(&self, tunnel_id: &str, name: &str) -> bool {
+        if !self.initialized() {
+            let _ = self.initialize();
+        }
+        if !self.initialized() {
+            return false;
+        }
+
+        let Ok(data) = self.request(
+            "tunnels/rename",
+            Some(json!({ "tunnel_id": tunnel_id, "name": name })),
+        ) else {
+            return false;
+        };
+        if data.get("status").and_then(Value::as_str) != Some("success") {
+            return false;
+        }
+
+        {
+            let mut state = self.state.lock().unwrap();
+            for tunnel in state
+                .tunnels
+                .values_mut()
+                .flat_map(|bucket| bucket.iter_mut())
+            {
+                if tunnel.id == tunnel_id {
+                    tunnel.name = name.to_string();
+                }
+            }
+        }
+
+        let mut cached = self.tunnel_cache.get_tunnel(tunnel_id);
+        if let Some(object) = cached.as_object_mut() {
+            object.insert("name".to_string(), Value::String(name.to_string()));
+            self.tunnel_cache.add_tunnel(tunnel_id, cached);
+        }
+        true
+    }
+
+    pub fn rename_tunnel(&self, port: u16, kind: TunnelKind, name: &str) -> bool {
+        if !self.initialized() {
+            let _ = self.initialize();
+        }
+        if !self.initialized() {
+            return false;
+        }
+
+        self.retrieve_tunnels();
+        let Some(tunnel) = self.tunnel_for(port, kind) else {
+            return false;
+        };
+        self.rename_tunnel_by_id(&tunnel.id, name)
+    }
+
     pub fn get_tunnel(
         &self,
         port: u16,

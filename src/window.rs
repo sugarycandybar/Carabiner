@@ -10,8 +10,8 @@ use crate::{
     settings::{load_settings, save_settings},
     tunnel_store::{
         TunnelConfig, add_tunnel, add_tunnel_with_type, load_tunnels, managers_snapshot,
-        remove_tunnel, stop_all_tunnels, update_tunnel_autostart, update_tunnel_label,
-        update_tunnel_url,
+        remove_tunnel, save_tunnels, stop_all_tunnels, update_tunnel_autostart,
+        update_tunnel_label, update_tunnel_playit_label, update_tunnel_url,
     },
     util::t,
 };
@@ -33,7 +33,15 @@ use std::{
 static LIVE_PLAYIT_TUNNELS: Lazy<Mutex<Vec<TunnelConfig>>> = Lazy::new(|| Mutex::new(Vec::new()));
 static PLAYIT_FETCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static PLAYIT_LAST_REFRESH: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
-static PLAYIT_REFRESH_WAKE: Lazy<(Sender<()>, Receiver<()>)> = Lazy::new(unbounded);
+static PLAYIT_AGENT_EXPANDED: AtomicBool = AtomicBool::new(false);
+
+struct PlayitRefreshResult {
+    changed: bool,
+    toast: Option<String>,
+}
+
+static PLAYIT_REFRESH_WAKE: Lazy<(Sender<PlayitRefreshResult>, Receiver<PlayitRefreshResult>)> =
+    Lazy::new(unbounded);
 
 const PLAYIT_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
 
@@ -79,6 +87,7 @@ fn config_from_playit_tunnel(tunnel: &PlayitTunnel) -> TunnelConfig {
         port: tunnel.port.unwrap_or(0),
         label: tunnel.name.clone(),
         tunnel_type: kind.key().to_string(),
+        playit_name: String::new(),
         autostart: false,
         public_url: tunnel.hostname.clone(),
         extra: Default::default(),
@@ -105,17 +114,56 @@ fn remove_live_playit_tunnel(config_id: &str) {
         .retain(|tunnel| tunnel.id != config_id);
 }
 
-fn playit_tunnel_represented(stored: &[TunnelConfig], live: &TunnelConfig) -> bool {
-    let live_kind = kind_from_config(&live.protocol, &live.tunnel_type);
-    stored.iter().any(|config| {
-        config.provider == "Playit"
-            && kind_from_config(&config.protocol, &config.tunnel_type) == live_kind
-            && (config.port == live.port
-                || (!config.public_url.is_empty() && config.public_url == live.public_url))
-    })
+fn playit_tunnel_matches(config: &TunnelConfig, live: &TunnelConfig) -> bool {
+    config.provider == "Playit"
+        && kind_from_config(&config.protocol, &config.tunnel_type)
+            == kind_from_config(&live.protocol, &live.tunnel_type)
+        && (config.port == live.port
+            || (!config.public_url.is_empty() && config.public_url == live.public_url))
 }
 
-fn schedule_playit_tunnel_refresh(force: bool) {
+fn playit_tunnel_represented(stored: &[TunnelConfig], live: &TunnelConfig) -> bool {
+    stored
+        .iter()
+        .any(|config| playit_tunnel_matches(config, live))
+}
+
+/// Keep stored Playit labels in sync with the tunnel names shown on playit.gg.
+///
+/// A label that the user set in Carabiner is preserved; only labels that were
+/// empty or previously synced from playit are updated.
+fn sync_stored_playit_labels(stored: &mut [TunnelConfig], live: &[TunnelConfig]) -> bool {
+    let mut changed = false;
+    for config in stored
+        .iter_mut()
+        .filter(|config| config.provider == "Playit")
+    {
+        let Some(live) = live.iter().find(|live| playit_tunnel_matches(config, live)) else {
+            continue;
+        };
+        let name = live.label.trim();
+        if name.is_empty() {
+            continue;
+        }
+
+        let auto_synced = config.label.is_empty() || config.playit_name == config.label;
+        if !auto_synced {
+            continue;
+        }
+
+        if config.label != name {
+            config.label = name.to_string();
+            changed = true;
+        }
+        if config.playit_name != name {
+            config.playit_name = name.to_string();
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn schedule_playit_tunnel_refresh(force: bool, toast: Option<String>) {
     if !force
         && let Some(last) = *PLAYIT_LAST_REFRESH.lock().unwrap()
         && last.elapsed() < PLAYIT_REFRESH_INTERVAL
@@ -148,15 +196,17 @@ fn schedule_playit_tunnel_refresh(force: bool) {
             }
         }
 
-        let mut changed = force;
+        let mut changed = false;
         if let Some(tunnels) = fetched {
             changed |= set_live_playit_tunnels(tunnels);
         }
         *PLAYIT_LAST_REFRESH.lock().unwrap() = Some(Instant::now());
         PLAYIT_FETCH_IN_FLIGHT.store(false, Ordering::SeqCst);
 
-        if changed {
-            let _ = PLAYIT_REFRESH_WAKE.0.send(());
+        if changed || toast.is_some() {
+            let _ = PLAYIT_REFRESH_WAKE
+                .0
+                .send(PlayitRefreshResult { changed, toast });
         }
     });
 }
@@ -180,6 +230,17 @@ fn show_error_for_widget(widget: &impl IsA<gtk::Widget>, title: &str, body: &str
         .root()
         .and_then(|root| root.downcast::<gtk::Window>().ok());
     show_message(parent.as_ref(), title, body);
+}
+
+fn toast_for_widget(widget: &impl IsA<gtk::Widget>, text: &str) {
+    if let Some(root) = widget.root()
+        && let Ok(win) = root.downcast::<adw::ApplicationWindow>()
+        && let Some(overlay) = win
+            .content()
+            .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
+    {
+        add_toast(&overlay, text);
+    }
 }
 
 fn drain_receiver<T: 'static, F: FnMut(T) + 'static>(receiver: Receiver<T>, mut on_msg: F) {
@@ -255,8 +316,12 @@ impl CarabinerWindow {
 
         {
             let this = this.clone();
-            drain_receiver(PLAYIT_REFRESH_WAKE.1.clone(), move |_| {
-                this.refresh_ui(None)
+            drain_receiver(PLAYIT_REFRESH_WAKE.1.clone(), move |result| {
+                if result.changed {
+                    this.refresh_ui(result.toast);
+                } else if let Some(toast) = result.toast {
+                    this.add_toast(&toast);
+                }
             });
         }
 
@@ -395,11 +460,16 @@ impl CarabinerWindow {
             self.add_toast(&toast_msg);
         }
 
-        schedule_playit_tunnel_refresh(false);
+        schedule_playit_tunnel_refresh(false, None);
 
-        let stored_tunnels = load_tunnels();
+        let mut stored_tunnels = load_tunnels();
+        let live_tunnels = live_playit_tunnels();
+        if sync_stored_playit_labels(&mut stored_tunnels, &live_tunnels) {
+            save_tunnels(&stored_tunnels);
+        }
+
         let mut tunnels = stored_tunnels.clone();
-        for live in live_playit_tunnels() {
+        for live in live_tunnels {
             if !playit_tunnel_represented(&stored_tunnels, &live)
                 && !tunnels.iter().any(|tunnel| tunnel.id == live.id)
             {
@@ -447,20 +517,6 @@ impl CarabinerWindow {
 
             if provider == "Playit" {
                 group.add(&PlayitAgentRow::new(&self.toast_overlay).row);
-
-                let refresh_row = adw::ActionRow::new();
-                refresh_row.set_title(&t("Refresh Tunnels"));
-                refresh_row.set_subtitle(&t("Show tunnels created on playit.gg"));
-                let refresh_btn = gtk::Button::builder()
-                    .icon_name("view-refresh-symbolic")
-                    .valign(gtk::Align::Center)
-                    .tooltip_text(t("Refresh Tunnels"))
-                    .build();
-                refresh_btn.add_css_class("flat");
-                refresh_row.add_suffix(&refresh_btn);
-                refresh_row.set_activatable_widget(Some(&refresh_btn));
-                refresh_btn.connect_clicked(move |_| schedule_playit_tunnel_refresh(true));
-                group.add(&refresh_row);
             }
 
             for config in tunnels.iter().filter(|tunnel| tunnel.provider == provider) {
@@ -717,6 +773,10 @@ impl PlayitAgentRow {
         let row = adw::ExpanderRow::new();
         row.set_title(&t("Playit Agent"));
         row.set_subtitle(&t("Stopped"));
+        row.set_expanded(PLAYIT_AGENT_EXPANDED.load(Ordering::SeqCst));
+        row.connect_notify_local(Some("expanded"), |row, _| {
+            PLAYIT_AGENT_EXPANDED.store(row.is_expanded(), Ordering::SeqCst);
+        });
 
         let suffix_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         suffix_box.set_valign(gtk::Align::Center);
@@ -743,6 +803,19 @@ impl PlayitAgentRow {
         autostart_row.add_suffix(&autostart_switch);
         autostart_row.set_activatable_widget(Some(&autostart_switch));
         row.add_row(&autostart_row);
+
+        let refresh_row = adw::ActionRow::new();
+        refresh_row.set_title(&t("Refresh Tunnels"));
+        let refresh_btn = gtk::Button::builder()
+            .icon_name("view-refresh-symbolic")
+            .valign(gtk::Align::Center)
+            .build();
+        refresh_btn.add_css_class("flat");
+        refresh_row.add_suffix(&refresh_btn);
+        refresh_btn.connect_clicked(move |_| {
+            schedule_playit_tunnel_refresh(true, Some(t("Tunnels refreshed")))
+        });
+        row.add_row(&refresh_row);
 
         let error_open = Rc::new(RefCell::new(false));
         Self::update_status(&row, &spinner, &switch, &error_open, &manager.status());
@@ -814,7 +887,7 @@ impl PlayitAgentRow {
                 if let ManagerEvent::StatusChanged(status) = event {
                     Self::update_status(&row, &spinner, &switch, &error_open, &status);
                     if status == "running" || status == "stopped" {
-                        schedule_playit_tunnel_refresh(true);
+                        schedule_playit_tunnel_refresh(true, None);
                     }
                     if let Some(msg) = status.strip_prefix("error:")
                         && !*error_open.borrow()
@@ -920,7 +993,6 @@ impl TunnelRow {
 
         let info_row = adw::ActionRow::new();
         info_row.set_title(&t("Tunnel Info"));
-        info_row.set_activatable(true);
         let info_btn = gtk::Button::builder()
             .icon_name("dialog-information-symbolic")
             .valign(gtk::Align::Center)
@@ -956,7 +1028,6 @@ impl TunnelRow {
             .build();
         delete_btn.add_css_class("destructive-action");
         delete_row.add_suffix(&delete_btn);
-        delete_row.set_activatable_widget(Some(&delete_btn));
         row.add_row(&delete_row);
 
         {
@@ -1080,21 +1151,6 @@ impl TunnelRow {
             ManagerEvent::OutputReceived(_) => {}
         });
 
-        {
-            let refs = TunnelRowRefs {
-                row: row.clone(),
-                manager: manager.clone(),
-                config: config.clone(),
-                public_url: public_url.clone(),
-                main_copy_btn: main_copy_btn.clone(),
-                spinner: spinner.clone(),
-                switch: switch.clone(),
-                info_url_row: info_url_row.clone(),
-                is_cycling_hostname: is_cycling_hostname.clone(),
-                error_open: error_open.clone(),
-            };
-            info_row.connect_activated(move |_| refs.show_info_dialog());
-        }
         {
             let refs = TunnelRowRefs {
                 row: row.clone(),
@@ -1346,7 +1402,7 @@ impl TunnelRowRefs {
         group.add(&info_url_row);
         *self.info_url_row.borrow_mut() = Some(info_url_row.clone());
 
-        if playit_external_id(&self.config.borrow()).is_none() {
+        {
             let label_row = adw::EntryRow::new();
             label_row.set_title(&t("Label"));
             label_row.set_text(&self.config.borrow().label);
@@ -1356,17 +1412,55 @@ impl TunnelRowRefs {
                 let dialog = dialog.clone();
                 label_row.connect_apply(move |row| {
                     let new_label = row.text().trim().to_string();
-                    update_tunnel_label(&refs.config.borrow().id, &new_label);
-                    refs.config.borrow_mut().label = new_label;
+                    let old_label = refs.config.borrow().label.clone();
+                    let provider = refs.config.borrow().provider.clone();
+                    let config_id = refs.config.borrow().id.clone();
+                    let external_id = playit_external_id(&refs.config.borrow()).map(str::to_string);
+                    let is_external = external_id.is_some();
+                    let port = refs.config.borrow().port;
+                    let kind = kind_from_config(
+                        &refs.config.borrow().protocol,
+                        &refs.config.borrow().tunnel_type,
+                    );
+
+                    refs.config.borrow_mut().label = new_label.clone();
                     refs.row.set_title(&tunnel_title(&refs.config.borrow()));
                     dialog.close();
-                    if let Some(root) = refs.row.root()
-                        && let Ok(win) = root.downcast::<adw::ApplicationWindow>()
-                        && let Some(overlay) = win
-                            .content()
-                            .and_then(|w| w.downcast::<adw::ToastOverlay>().ok())
-                    {
-                        add_toast(&overlay, &t("Label updated"));
+
+                    if provider == "Playit" {
+                        let (tx, rx) = unbounded::<(bool, String)>();
+                        let manager = refs.manager.as_playit();
+                        let label = new_label.clone();
+                        thread::spawn(move || {
+                            let ok = match manager {
+                                Some(manager) => match external_id {
+                                    Some(tunnel_id) => {
+                                        manager.rename_tunnel_by_id(&tunnel_id, &label)
+                                    }
+                                    None => manager.rename_tunnel(port, kind, &label),
+                                },
+                                None => false,
+                            };
+                            let _ = tx.send((ok, label));
+                        });
+                        let refs = refs.clone();
+                        drain_receiver(rx, move |(ok, label)| {
+                            if ok {
+                                if !is_external {
+                                    let id = refs.config.borrow().id.clone();
+                                    update_tunnel_playit_label(&id, &label);
+                                }
+                                toast_for_widget(&refs.row, &t("Label updated"));
+                                schedule_playit_tunnel_refresh(true, None);
+                            } else {
+                                refs.config.borrow_mut().label = old_label.clone();
+                                refs.row.set_title(&tunnel_title(&refs.config.borrow()));
+                                toast_for_widget(&refs.row, &t("Failed to rename tunnel"));
+                            }
+                        });
+                    } else {
+                        update_tunnel_label(&config_id, &new_label);
+                        toast_for_widget(&refs.row, &t("Label updated"));
                     }
                 });
             }
@@ -1963,5 +2057,83 @@ fn capitalize(status: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn playit_config(id: &str, port: u16, label: &str, tunnel_type: &str) -> TunnelConfig {
+        TunnelConfig {
+            id: id.to_string(),
+            provider: "Playit".to_string(),
+            protocol: "UDP".to_string(),
+            port,
+            label: label.to_string(),
+            tunnel_type: tunnel_type.to_string(),
+            playit_name: String::new(),
+            autostart: false,
+            public_url: String::new(),
+            extra: Default::default(),
+        }
+    }
+
+    #[test]
+    fn syncs_empty_playit_label_from_live_name() {
+        let mut stored = vec![playit_config("stored", 19132, "", "")];
+        let live = vec![playit_config(
+            "playit-agent:live",
+            19132,
+            "HELP ME",
+            "bedrock-raknet",
+        )];
+
+        assert!(sync_stored_playit_labels(&mut stored, &live));
+        assert_eq!(stored[0].label, "HELP ME");
+        assert_eq!(stored[0].playit_name, "HELP ME");
+    }
+
+    #[test]
+    fn syncs_previously_synced_playit_label() {
+        let mut stored = vec![playit_config("stored", 19132, "OLD NAME", "")];
+        stored[0].playit_name = "OLD NAME".to_string();
+        let live = vec![playit_config(
+            "playit-agent:live",
+            19132,
+            "NEW NAME",
+            "bedrock-raknet",
+        )];
+
+        assert!(sync_stored_playit_labels(&mut stored, &live));
+        assert_eq!(stored[0].label, "NEW NAME");
+    }
+
+    #[test]
+    fn keeps_custom_playit_label() {
+        let mut stored = vec![playit_config("stored", 19132, "My Server", "")];
+        let live = vec![playit_config(
+            "playit-agent:live",
+            19132,
+            "HELP ME",
+            "bedrock-raknet",
+        )];
+
+        assert!(!sync_stored_playit_labels(&mut stored, &live));
+        assert_eq!(stored[0].label, "My Server");
+    }
+
+    #[test]
+    fn does_not_sync_across_tunnel_kinds() {
+        let mut stored = vec![playit_config("stored", 19132, "", "bedrock")];
+        let live = vec![playit_config(
+            "playit-agent:live",
+            19132,
+            "HELP ME",
+            "bedrock-raknet",
+        )];
+
+        assert!(!sync_stored_playit_labels(&mut stored, &live));
+        assert!(stored[0].label.is_empty());
     }
 }

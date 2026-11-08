@@ -29,6 +29,10 @@ pub struct TunnelConfig {
     /// (`java`, `udp`, `bedrock` or `bedrock-raknet`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tunnel_type: String,
+    /// Last tunnel name synced from playit.gg. Used to distinguish labels
+    /// that were synced automatically from labels the user set in Carabiner.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub playit_name: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub autostart: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -82,6 +86,7 @@ pub fn add_tunnel_with_type(
         port,
         label: label.to_string(),
         tunnel_type: tunnel_type.to_string(),
+        playit_name: String::new(),
         autostart: false,
         public_url: String::new(),
         extra: HashMap::new(),
@@ -96,6 +101,14 @@ pub fn update_tunnel_url(tunnel_id: &str, url: &str) {
 
 pub fn update_tunnel_label(tunnel_id: &str, label: &str) {
     update_tunnel(tunnel_id, |tunnel| tunnel.label = label.to_string());
+}
+
+/// Update a Playit tunnel label after renaming it on playit.gg.
+pub fn update_tunnel_playit_label(tunnel_id: &str, label: &str) {
+    update_tunnel(tunnel_id, |tunnel| {
+        tunnel.label = label.to_string();
+        tunnel.playit_name = label.to_string();
+    });
 }
 
 pub fn update_tunnel_autostart(tunnel_id: &str, autostart: bool) {
