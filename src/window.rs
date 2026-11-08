@@ -1864,7 +1864,7 @@ struct PendingTunnel {
     label: String,
 }
 
-fn save_tunnel(tunnel: PendingTunnel, save_btn: gtk::Button, on_saved: Rc<dyn Fn(Option<String>)>) {
+fn save_tunnel(tunnel: PendingTunnel, on_saved: Rc<dyn Fn(Option<String>)>) {
     let PendingTunnel {
         provider,
         protocol,
@@ -1874,12 +1874,12 @@ fn save_tunnel(tunnel: PendingTunnel, save_btn: gtk::Button, on_saved: Rc<dyn Fn
         label,
     } = tunnel;
     if provider == "Playit" {
+        let id = add_tunnel_with_type(&provider, &protocol, &tunnel_type, port, &label);
         let create_label = if label.is_empty() {
             "carabiner".to_string()
         } else {
             label.clone()
         };
-        save_btn.set_sensitive(false);
 
         let (tx, rx) = unbounded::<(bool, String, String)>();
         thread::spawn(move || {
@@ -1899,7 +1899,7 @@ fn save_tunnel(tunnel: PendingTunnel, save_btn: gtk::Button, on_saved: Rc<dyn Fn
                 Ok(None) => {
                     let _ = tx.send((
                         false,
-                        "Failed to create the playit tunnel".to_string(),
+                        "the tunnel was not created in time".to_string(),
                         String::new(),
                     ));
                 }
@@ -1909,16 +1909,24 @@ fn save_tunnel(tunnel: PendingTunnel, save_btn: gtk::Button, on_saved: Rc<dyn Fn
             }
         });
 
+        // Close the setup page right away and let the new row show the
+        // creation progress while the tunnel is being made.
+        on_saved(None);
+
         drain_receiver(rx, move |(ok, msg, hostname)| {
             if ok {
-                let id = add_tunnel_with_type(&provider, &protocol, &tunnel_type, port, &label);
                 if !hostname.is_empty() {
                     update_tunnel_url(&id, &hostname);
                 }
                 on_saved(Some(t("Tunnel created")));
+            } else if let Some(tunnel) = get_shared_playit_manager().tunnel_for(port, kind) {
+                if !tunnel.hostname.is_empty() {
+                    update_tunnel_url(&id, &tunnel.hostname);
+                }
+                on_saved(Some(t("Tunnel created")));
             } else {
-                save_btn.set_sensitive(true);
-                show_error_for_widget(&save_btn, &t("Error"), &msg);
+                remove_tunnel(&id);
+                on_saved(Some(format!("{}: {msg}", t("Failed to create tunnel"))));
             }
         });
     } else {
@@ -2050,7 +2058,6 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             let protocol = protocol.clone();
             let tunnel_type = tunnel_type.clone();
             let label = label.clone();
-            let save_btn = save_btn.clone();
             let on_saved = on_saved.clone();
             move || {
                 save_tunnel(
@@ -2062,7 +2069,6 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
                         port,
                         label,
                     },
-                    save_btn,
                     on_saved,
                 )
             }
