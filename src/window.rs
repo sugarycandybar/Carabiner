@@ -1929,7 +1929,11 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             let provider = provider.clone();
             let protocol = protocol.to_string();
             let tunnel_type = tunnel_type.to_string();
-            let create_label = label.clone();
+            let create_label = if label.is_empty() {
+                "carabiner".to_string()
+            } else {
+                label.clone()
+            };
             let save_btn = save_btn_for_handler.clone();
             let on_saved = on_saved.clone();
             save_btn.set_sensitive(false);
