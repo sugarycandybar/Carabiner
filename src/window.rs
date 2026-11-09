@@ -20,7 +20,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use gtk::{gio, glib};
 use once_cell::sync::Lazy;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -265,23 +265,6 @@ fn toast_for_widget(widget: &impl IsA<gtk::Widget>, text: &str) {
     }
 }
 
-/// Restore a scrolled window's position once its content has been allocated.
-fn restore_scroll_position(scrolled: &gtk::ScrolledWindow, position: f64) {
-    let scrolled = scrolled.clone();
-    let mut attempts = 0;
-    glib::timeout_add_local(Duration::from_millis(10), move || {
-        let adjustment = scrolled.vadjustment();
-        let max = (adjustment.upper() - adjustment.page_size()).max(0.0);
-        attempts += 1;
-        if max > 0.0 || attempts >= 20 {
-            adjustment.set_value(position.min(max));
-            glib::ControlFlow::Break
-        } else {
-            glib::ControlFlow::Continue
-        }
-    });
-}
-
 fn find_scrolled_window(widget: &gtk::Widget) -> Option<gtk::ScrolledWindow> {
     if let Some(scrolled) = widget.downcast_ref::<gtk::ScrolledWindow>() {
         return Some(scrolled.clone());
@@ -312,6 +295,14 @@ pub struct CarabinerWindow {
     toolbar_view: adw::ToolbarView,
     quit_requested: Rc<RefCell<bool>>,
     release_background_hold: Rc<dyn Fn()>,
+    /// Last known user scroll offset, kept across page rebuilds.
+    scroll_position: Rc<Cell<f64>>,
+    /// Adjustment/handler currently feeding `scroll_position`.
+    scroll_tracking: Rc<RefCell<Option<(gtk::Adjustment, glib::SignalHandlerId)>>>,
+    /// Suppresses scroll tracking while a rebuild restores the position.
+    restoring_scroll: Rc<Cell<bool>>,
+    /// Identifies the latest restore request so older timers are ignored.
+    scroll_generation: Rc<Cell<u64>>,
 }
 
 impl CarabinerWindow {
@@ -365,6 +356,10 @@ impl CarabinerWindow {
             toolbar_view,
             quit_requested: Rc::new(RefCell::new(false)),
             release_background_hold,
+            scroll_position: Rc::new(Cell::new(0.0)),
+            scroll_tracking: Rc::new(RefCell::new(None)),
+            restoring_scroll: Rc::new(Cell::new(false)),
+            scroll_generation: Rc::new(Cell::new(0)),
         };
 
         {
@@ -508,17 +503,80 @@ impl CarabinerWindow {
         about.present(Some(&self.window));
     }
 
+    /// Keep `scroll_position` in sync with the content's current offset.
+    fn track_scroll(&self, scrolled: &gtk::ScrolledWindow) {
+        if let Some((adjustment, handler)) = self.scroll_tracking.borrow_mut().take() {
+            adjustment.disconnect(handler);
+        }
+
+        let adjustment = scrolled.vadjustment();
+        let position = self.scroll_position.clone();
+        let restoring = self.restoring_scroll.clone();
+        let handler = adjustment.connect_value_changed(move |adjustment| {
+            if !restoring.get() {
+                position.set(adjustment.value());
+            }
+        });
+        *self.scroll_tracking.borrow_mut() = Some((adjustment, handler));
+    }
+
+    fn clear_scroll_tracking(&self) {
+        if let Some((adjustment, handler)) = self.scroll_tracking.borrow_mut().take() {
+            adjustment.disconnect(handler);
+        }
+    }
+
+    /// Restore the saved scroll offset once the rebuilt content is allocated.
+    fn restore_scroll(&self, scrolled: &gtk::ScrolledWindow) {
+        let generation = self.scroll_generation.get().wrapping_add(1);
+        self.scroll_generation.set(generation);
+
+        let position = self.scroll_position.get();
+        if position <= 0.0 {
+            self.restoring_scroll.set(false);
+            return;
+        }
+
+        self.restoring_scroll.set(true);
+        let scrolled = scrolled.clone();
+        let position_cell = self.scroll_position.clone();
+        let restoring = self.restoring_scroll.clone();
+        let generation_cell = self.scroll_generation.clone();
+        let mut attempts = 0;
+        glib::timeout_add_local(Duration::from_millis(10), move || {
+            if generation_cell.get() != generation {
+                return glib::ControlFlow::Break;
+            }
+
+            let adjustment = scrolled.vadjustment();
+            let max = (adjustment.upper() - adjustment.page_size()).max(0.0);
+            attempts += 1;
+            if max > 0.0 || attempts >= 100 {
+                let value = position.min(max);
+                adjustment.set_value(value);
+                position_cell.set(value);
+                restoring.set(false);
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
+    }
+
     fn refresh_ui(&self, toast_msg: Option<String>) {
         if let Some(toast_msg) = toast_msg {
             self.add_toast(&toast_msg);
         }
 
-        let scroll_position = self
-            .toolbar_view
-            .content()
-            .and_then(|content| find_scrolled_window(&content))
-            .map(|scrolled| scrolled.vadjustment().value())
-            .filter(|value| *value > 0.0);
+        if !self.restoring_scroll.get()
+            && let Some(content) = self.toolbar_view.content()
+            && let Some(scrolled) = find_scrolled_window(&content)
+        {
+            self.scroll_position.set(scrolled.vadjustment().value());
+        }
+        // Stop listening before replacing the content so teardown cannot
+        // overwrite the saved position with zero.
+        self.clear_scroll_tracking();
 
         schedule_playit_tunnel_refresh(false, None);
 
@@ -559,6 +617,7 @@ impl CarabinerWindow {
             box_.append(&btn);
             box_.set_valign(gtk::Align::Center);
             self.toolbar_view.set_content(Some(&box_));
+            self.clear_scroll_tracking();
             return;
         }
 
@@ -589,10 +648,11 @@ impl CarabinerWindow {
         }
 
         self.toolbar_view.set_content(Some(&page));
-        if let Some(scroll_position) = scroll_position
-            && let Some(scrolled) = find_scrolled_window(page.upcast_ref())
-        {
-            restore_scroll_position(&scrolled, scroll_position);
+        if let Some(scrolled) = find_scrolled_window(page.upcast_ref()) {
+            self.track_scroll(&scrolled);
+            self.restore_scroll(&scrolled);
+        } else {
+            self.clear_scroll_tracking();
         }
     }
 }
@@ -948,10 +1008,17 @@ impl PlayitAgentRow {
             let spinner = spinner.clone();
             let error_open = error_open.clone();
             let toast_overlay = toast_overlay.clone();
+            let previous_status = Rc::new(RefCell::new(manager.status()));
             drain_receiver(rx, move |event| {
                 if let ManagerEvent::StatusChanged(status) = event {
                     Self::update_status(&row, &spinner, &switch, &error_open, &status);
-                    if status == "running" || status == "stopped" {
+                    let previous = previous_status.borrow().clone();
+                    *previous_status.borrow_mut() = status.clone();
+                    // A tunnel being created also flips the agent status to
+                    // running/stopped. Rebuilding the list for that transition
+                    // makes the new row disappear and jumps the scroll position,
+                    // so only refresh for real agent lifecycle changes.
+                    if (status == "running" || status == "stopped") && previous != "creating" {
                         schedule_playit_tunnel_refresh(true, None);
                     }
                     if let Some(msg) = status.strip_prefix("error:")
@@ -1910,7 +1977,10 @@ fn save_tunnel(tunnel: PendingTunnel, on_saved: Rc<dyn Fn(Option<String>)>) {
         });
 
         // Close the setup page right away and let the new row show the
-        // creation progress while the tunnel is being made.
+        // creation progress while the tunnel is being made. Suppress the
+        // background tunnel refresh triggered by that rebuild so it cannot
+        // race with the in-flight creation and rebuild the list again.
+        *PLAYIT_LAST_REFRESH.lock().unwrap() = Some(Instant::now());
         on_saved(None);
 
         drain_receiver(rx, move |(ok, msg, hostname)| {
@@ -1918,12 +1988,20 @@ fn save_tunnel(tunnel: PendingTunnel, on_saved: Rc<dyn Fn(Option<String>)>) {
                 if !hostname.is_empty() {
                     update_tunnel_url(&id, &hostname);
                 }
-                on_saved(Some(t("Tunnel created")));
+                // Update the row in place; rebuilding the list here makes the
+                // freshly created row flicker and resets the scroll position.
+                let _ = PLAYIT_REFRESH_WAKE.0.send(PlayitRefreshResult {
+                    changed: false,
+                    toast: Some(t("Tunnel created")),
+                });
             } else if let Some(tunnel) = get_shared_playit_manager().tunnel_for(port, kind) {
                 if !tunnel.hostname.is_empty() {
                     update_tunnel_url(&id, &tunnel.hostname);
                 }
-                on_saved(Some(t("Tunnel created")));
+                let _ = PLAYIT_REFRESH_WAKE.0.send(PlayitRefreshResult {
+                    changed: false,
+                    toast: Some(t("Tunnel created")),
+                });
             } else {
                 remove_tunnel(&id);
                 on_saved(Some(format!("{}: {msg}", t("Failed to create tunnel"))));
@@ -1932,6 +2010,15 @@ fn save_tunnel(tunnel: PendingTunnel, on_saved: Rc<dyn Fn(Option<String>)>) {
     } else {
         add_tunnel(&provider, &protocol, port, &label);
         on_saved(Some(t("Tunnel created")));
+    }
+}
+
+fn default_port_for_protocol(protocol: &str) -> Option<f64> {
+    match protocol {
+        "TCP" | "UDP" => Some(25565.0),
+        "HTTP" => Some(8080.0),
+        "Bedrock tunnel (Raknet)" | "Bedrock tunnel" => Some(19132.0),
+        _ => None,
     }
 }
 
@@ -1972,11 +2059,7 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
         .string(protocol_row.selected())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "TCP".to_string());
-    let initial_port = match initial_protocol.as_str() {
-        "HTTP" => 8080.0,
-        "UDP" | "Bedrock tunnel (Raknet)" | "Bedrock tunnel" => 19132.0,
-        _ => 25565.0,
-    };
+    let initial_port = default_port_for_protocol(&initial_protocol).unwrap_or(25565.0);
     port_spin.set_value(initial_port);
     port_spin.set_valign(gtk::Align::Center);
     port_row.add_suffix(&port_spin);
@@ -1989,15 +2072,9 @@ fn setup_details_page(provider: &str, on_saved: Rc<dyn Fn(Option<String>)>) -> a
             .model()
             .and_then(|m| m.downcast::<gtk::StringList>().ok())
             && let Some(protocol) = model.string(selected)
+            && let Some(port) = default_port_for_protocol(&protocol)
         {
-            match protocol.as_str() {
-                "TCP" => port_spin_clone.set_value(25565.0),
-                "HTTP" => port_spin_clone.set_value(8080.0),
-                "UDP" | "Bedrock tunnel (Raknet)" | "Bedrock tunnel" => {
-                    port_spin_clone.set_value(19132.0)
-                }
-                _ => {}
-            }
+            port_spin_clone.set_value(port);
         }
     });
 
@@ -2411,5 +2488,17 @@ mod tests {
         assert!(conflicting_tunnel(&tunnels, "Playit", "TCP", 19132).is_none());
         assert!(conflicting_tunnel(&tunnels, "Playit", "UDP", 19133).is_none());
         assert!(conflicting_tunnel(&tunnels, "Ngrok", "UDP", 19132).is_none());
+    }
+
+    #[test]
+    fn uses_simple_voice_chat_port_for_playit_udp() {
+        assert_eq!(default_port_for_protocol("UDP"), Some(25565.0));
+        assert_eq!(default_port_for_protocol("TCP"), Some(25565.0));
+        assert_eq!(default_port_for_protocol("Bedrock tunnel"), Some(19132.0));
+        assert_eq!(
+            default_port_for_protocol("Bedrock tunnel (Raknet)"),
+            Some(19132.0)
+        );
+        assert_eq!(default_port_for_protocol("HTTP"), Some(8080.0));
     }
 }
