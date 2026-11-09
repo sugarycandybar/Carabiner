@@ -2015,7 +2015,9 @@ fn save_tunnel(tunnel: PendingTunnel, on_saved: Rc<dyn Fn(Option<String>)>) {
 
 fn default_port_for_protocol(protocol: &str) -> Option<f64> {
     match protocol {
-        "TCP" | "UDP" => Some(25565.0),
+        "TCP" => Some(25565.0),
+        // Simple Voice Chat defaults to 24454.
+        "UDP" => Some(24454.0),
         "HTTP" => Some(8080.0),
         "Bedrock tunnel (Raknet)" | "Bedrock tunnel" => Some(19132.0),
         _ => None,
@@ -2492,7 +2494,7 @@ mod tests {
 
     #[test]
     fn uses_simple_voice_chat_port_for_playit_udp() {
-        assert_eq!(default_port_for_protocol("UDP"), Some(25565.0));
+        assert_eq!(default_port_for_protocol("UDP"), Some(24454.0));
         assert_eq!(default_port_for_protocol("TCP"), Some(25565.0));
         assert_eq!(default_port_for_protocol("Bedrock tunnel"), Some(19132.0));
         assert_eq!(
